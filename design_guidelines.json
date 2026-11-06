@@ -1,0 +1,162 @@
+{
+  "app_name": "Pizzaiolo POS & KDS",
+  "personality": "1 iOS-Native Clean",
+  "personality_one_liner": "A highly readable, operational POS system that blends high-contrast functional design with warm, appetizing Italian restaurant tones (creams, terracotta, espresso).",
+  "color": {
+    "surface": "#FDFBF7",
+    "onSurface": "#2D1A11",
+    "surfaceSecondary": "#FFFFFF",
+    "onSurfaceSecondary": "#2D1A11",
+    "surfaceTertiary": "#F5EFE6",
+    "onSurfaceTertiary": "#4A352A",
+    "surfaceInverse": "#2D1A11",
+    "onSurfaceInverse": "#FDFBF7",
+    "brand": "#D84339",
+    "onBrand": "#FFFFFF",
+    "brandPrimary": "#D84339",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#3E2723",
+    "onBrandSecondary": "#FFFFFF",
+    "brandTertiary": "#FBE9E7",
+    "onBrandTertiary": "#B72A20",
+    "success": "#388E3C",
+    "onSuccess": "#FFFFFF",
+    "warning": "#F57C00",
+    "onWarning": "#FFFFFF",
+    "error": "#D32F2F",
+    "onError": "#FFFFFF",
+    "info": "#455A64",
+    "onInfo": "#FFFFFF",
+    "border": "#E8E0D5",
+    "borderStrong": "#C2B2A3",
+    "divider": "#E8E0D5",
+    "muted": "#8D786E"
+  },
+  "typography": {
+    "displayFontFamily": "Plus Jakarta Sans",
+    "textFontFamily": "DM Sans",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24,
+      "3xl": 32
+    }
+  },
+  "spacing": {
+    "rule": "Generous iOS-native rhythm. Tap targets must be strictly >= 44pt for fast use by waiters.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "1",
+  "navigation": "stack_only",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": "true",
+    "do's": [
+      "Use glass on sticky CTAs at the bottom of the Waiter order screen.",
+      "Use glass for modal scrims when recording voice notes."
+    ],
+    "dont's": [
+      "Do not use glass on KDS ticket cards. They need pure solid backgrounds for maximum clarity under bright kitchen lights."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Login",
+      "purpose": "Role selection (Waiter vs Kitchen) to route to the correct UI context.",
+      "states": {
+        "loading": "Centered spinner over the background",
+        "empty": "N/A",
+        "error": "Error toast with retry"
+      },
+      "layout": "Top 40% full-bleed image (hero_pizza_oven) with a vertical scrim (transparent to surface). Bottom 60% contains two large touch-friendly cards (Waiter, Kitchen) featuring brandTertiary tinted icons and large bold text."
+    },
+    {
+      "name": "WaiterTableGrid",
+      "purpose": "Overview of 10 tables allowing waiters to see occupancy, table status, and open a table to take an order.",
+      "states": {
+        "loading": "Skeleton grid",
+        "empty": "N/A",
+        "error": "Toast with retry action"
+      },
+      "layout": "Sticky header with 'Floor Plan'. Scrollable 2-column grid of 10 tables. Each table tile uses surfaceSecondary. Status (Available, Ordering, Served) is indicated by text color and a small status pip indicator."
+    },
+    {
+      "name": "TableOrderDetail",
+      "purpose": "Menu selection and current order composition, featuring voice-to-text item modification per dish.",
+      "states": {
+        "loading": "Skeleton list",
+        "empty": "Illustration of a pizza slice - 'No items added yet'",
+        "error": "Readable error message for speech-to-text failure"
+      },
+      "layout": "Scrollable view split into two conceptual sections. Section 1: Menu List (Pizza Margherita, Funghi, Al Casa) using small image thumbnails, price (in Euro), and an 'Add' icon button. Section 2: Current Order List. Each ordered item row has a microphone button (brandTertiary tint) to record a voice note. Transcribed text appears directly below the item name in 'muted' text. Sticky bottom container with 'Send to Kitchen' brandPrimary CTA."
+    },
+    {
+      "name": "KitchenBoard",
+      "purpose": "Kitchen Display System (KDS) kanban board showing order tickets grouped by status.",
+      "states": {
+        "loading": "Skeleton columns",
+        "empty": "Illustration of a clean kitchen - 'All tickets cleared'",
+        "error": "Toast with retry"
+      },
+      "layout": "Landscape optimized or horizontal scroll. 3 structural columns: New, Preparing, Ready. Each ticket is a surfaceSecondary card showing Table Number (large text), Elapsed Time, and a list of items. Items with voice notes show a transcription text block and a 'Play Audio' icon button. Bottom of ticket has a 'Move to Next State' CTA."
+    }
+  ],
+  "images": {
+    "hero_pizza_oven": {
+      "url": "https://images.unsplash.com/photo-1646656352194-7db15ee021bf?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzh8MHwxfHNlYXJjaHwxfHx3b29kJTIwZmlyZWQlMjBwaXp6YSUyMG92ZW4lMjByZXN0YXVyYW50fGVufDB8fHx8MTc5Mzk2MzI5OHww&ixlib=rb-4.1.0&q=85",
+      "alt": "Wood fired pizza oven"
+    },
+    "pizza_margherita": {
+      "url": "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzF8MHwxfHNlYXJjaHwxfHxQaXp6YSUyME1hcmdoZXJpdGF8ZW58MHx8fHwxNzkzOTYzMjkzfDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Pizza Margherita on wooden board"
+    },
+    "pizza_funghi": {
+      "url": "https://images.unsplash.com/photo-1620374645310-f9d97e733268?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwxfHxQaXp6YSUyMEZ1bmdoaSUyMG11c2hyb29tfGVufDB8fHx8MTc5Mzk2MzI5M3ww&ixlib=rb-4.1.0&q=85",
+      "alt": "Pizza Funghi"
+    },
+    "pizza_al_casa": {
+      "url": "https://images.unsplash.com/photo-1579751626657-72bc17010498?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzh8MHwxfHNlYXJjaHwxfHx3b29kJTIwZmlyZWQlMjBQaXp6YXxlbnwwfHx8fDE3OTM5NjMyOTN8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Wood fired Pizza al casa"
+    }
+  },
+  "haptics": {
+    "primary_button_press": "impactLight",
+    "add_item_to_order": "impactMedium",
+    "start_recording_voice": "notificationSuccess",
+    "move_ticket_status": "impactHeavy"
+  },
+  "instructions_to_main_agent": [
+    "Ensure UI is strictly devoid of purple/violet/blue gradients. Stick to the provided warm Italian restaurant palette (Cream, Terracotta/Pomodoro, Espresso).",
+    "Implement Waiter/Kitchen routing from the Login screen.",
+    "The TableOrderDetail screen must show the 3 pizzas with their fetched images. Waiters click to add an item. Inside the order list, each item row must feature a microphone button to trigger speech-to-text recording.",
+    "Kitchen KDS tickets must visibly display the transcribed voice text (e.g. 'extra cheese') and feature a 'Play' icon to listen to the audio.",
+    "Make KDS touch targets large, assuming wet/greasy fingers. Use a column layout for ticket states (New -> Preparing -> Ready -> Served).",
+    "Adhere to the iOS-Native Clean layout principles with large tap targets (>= 44pt). Do not use emojis in the UI."
+  ]
+}

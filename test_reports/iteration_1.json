@@ -1,0 +1,40 @@
+{
+  "summary": "First full test of the Pizzaiolo app (Expo + FastAPI). Backend: 15/15 pytest tests pass. They cover login for all 3 users (wrong password -> 401), /auth/me, menu (3 items with correct prices), tables (10 tables; kitchen gets 403), order create (total computed, no _id), filters by table and by active, the status flow (kitchen new->preparing->ready, waiter ready->served, illegal transitions -> 400, unknown id -> 404), validation (table 11 or empty items -> 422, unknown menu or voice note -> 400), voice-note upload (<2KB -> 400, kitchen -> 403, a sine wav returns transcript ''), and audio fetch (?token and Bearer both 200 with identical bytes, no token -> 401, unknown id -> 404). Frontend at mobile size 375x667: everything requested works. Login role cards prefill the username, a wrong password shows an error, the 10-table grid shows status, adding pizzas, removing one and the total (39 -> 27 €) are correct, the voice modal opens and closes on backdrop tap, sending shows a toast and the active order, the kitchen chips show counts, the voice-note ticket shows the transcript and an Anhören button (the audio GET returned 200), and advance buttons move tickets new->preparing->ready. The waiter then sees the 'Abholbereit' banner and status, 'Als serviert markieren' frees the table, and logout works for both roles. Deprecated packages detected: none (expo-audio is used, not expo-av).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/voice-notes/{id}/audio", "issue": "get_object raises requests.HTTPError when the storage fetch fails. Nothing catches it, so the user gets a bare 500 instead of a 502 with a German message (unlike the upload endpoint)."},
+      {"endpoint": "POST /api/voice-notes", "issue": "No DELETE endpoint for voice notes. Test uploads and abandoned recordings (re-record or modal closed without saving) pile up in storage and the DB."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "kitchen.tsx new-order toast", "issue": "A 'Neue Bestellung eingegangen' toast appears right after kitchen login even though no new order came in. Cause: lastNew is null and q.data is undefined on the first render, so the baseline is set to 0. When the first fetch returns, for example 3 new orders, 3 > 0 fires the toast and haptic. Fix: only set the baseline once q.data is defined (skip while q.isLoading). Reference: /app/frontend/app/kitchen.tsx:54-61", "testID": "kitchen-tab-new", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Kitchen", "issues": ["The status chips are 36px tall, below the 44px minimum touch target (kitchen.tsx:210).", "On a 375px width the 'Fertig' chip is cut off at the right edge, so users have to scroll sideways to reach it. Consider flex:1 chips or a shorter label."]},
+      {"screen": "Kitchen ticket", "issue_note": "", "issues": ["Item notes only show when voice_note_id is set (kitchen.tsx:161). An item with note_text but no voice note, which the API allows, shows its text nowhere in the kitchen."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_pizzaiolo_api.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Fix the spurious 'Neue Bestellung eingegangen' toast on first kitchen load (kitchen.tsx:54-61): ignore the first loaded dataset when setting the baseline.",
+    "Make the kitchen status chips at least 44px tall and make sure all 3 chips fit on 375px width.",
+    "Show note_text on kitchen tickets even without voice_note_id (kitchen.tsx:161).",
+    "Wrap get_object in voice_audio with try/except and return a 502 with a German message."
+  ],
+  "critical_code_review_comments": [
+    "Every logged-in user can fetch every voice note. That is acceptable for a single restaurant.",
+    "The kitchen move mutation's isPending disables every advance button at once while one request is running. This is minor.",
+    "Audio playback can't be heard in headless mode. The button's GET returned 200 with audio bytes, but the label stayed 'Anhören'. Verify playback on a device or emulator."
+  ],
+  "updated_files": ["/app/backend/tests/test_pizzaiolo_api.py"],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100% of requested flows (one medium toast bug)"},
+  "seed_data_creation": "I created TEST orders on tables 7, 9 and 5 and moved all of them to 'served', so none are active. 3 TEST voice notes (sine wavs) remain because there is no delete endpoint. The existing table 3 order was left untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run with: export EXPO_PUBLIC_BACKEND_URL from frontend/.env; pytest /app/backend/tests/test_pizzaiolo_api.py. The frontend env var is EXPO_PUBLIC_BACKEND_URL (not EXPO_BACKEND_URL). Recording can't be tested headless.",
+  "rca_of_issue": "Kitchen toast on login: the useEffect baseline lastNew is set to 0 while data is still undefined, so the first real data counts as 'new'."
+}
