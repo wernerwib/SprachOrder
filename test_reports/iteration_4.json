@@ -1,0 +1,25 @@
+{
+  "summary": "Login fix verified. Backend: 9/9 pytest pass. All 4 accounts log in, ' Kellner1 '/'Kellner123! ' -> 200, leading-space password -> 200, wrong password / wrong-case password / unknown user -> 401 with 'falsch'. Frontend (375x667): for all 3 role cards, Demo-Zugang einsetzen fills the correct username and password, and Anmelden goes to the right home (/waiter tables grid, /kitchen Bestellungen, /owner Speisekarte). Logout returns to /login. The eye toggle switches the input type password -> text -> password and is 44x44. Typing ' Kellner2 ' / 'Kellner123! ' by hand logs in as Kellner 2. A wrong password shows login-error-text 'Benutzername oder Passwort falsch'. The Enter key submits. Submit is disabled when the password is empty. No deprecated Expo packages were seen in the login screen.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "kitchen", "issues": ["On a 375px screen the 'Fertig' filter tab is cut off at the right edge (it probably scrolls sideways). Cosmetic only."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_login_trim.py", "/app/test_reports/pytest/pytest_iter4.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Both sides trim the password. Passwords that really start or end with a space can never match. This is fine for the current seeded accounts, but keep it in mind for future password-setting features.",
+    "The selected role card is only a UI hint. Picking 'Küche' and typing kellner1 logs in as a waiter. This is probably intended."
+  ],
+  "updated_files": ["/app/backend/tests/test_login_trim.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The frontend env key is EXPO_PUBLIC_BACKEND_URL. Run the backend login tests with: export $(grep EXPO_PUBLIC_BACKEND_URL /app/frontend/.env) && pytest tests/test_login_trim.py. Logout buttons: waiter-logout-button, kitchen-logout-button, owner-logout-button (no confirm dialog).",
+  "rca_of_issue": "The user's 'Benutzername oder Passwort falsch' was most likely caused by trailing spaces or auto-capitalization from the emulator keyboard. The fix trims and lowercases the username, trims the password on frontend and backend, and adds the demo-fill button and the eye toggle. Each of these cases was tested and works."
+}

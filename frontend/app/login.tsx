@@ -13,6 +13,7 @@ import Icon from "@/src/components/Icon";
 import { makeStyles, useTheme } from "@/src/theme";
 
 const DEFAULT_USER: Record<Role, string> = { waiter: "kellner1", kitchen: "kueche", owner: "inhaber" };
+const DEMO_PASSWORD: Record<Role, string> = { waiter: "Kellner123!", kitchen: "Kueche123!", owner: "Inhaber123!" };
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -25,6 +26,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showPw, setShowPw] = useState(false);
 
   if (user) return <Redirect href={HOME[user.role]} />;
 
@@ -39,7 +41,7 @@ export default function Login() {
     setBusy(true);
     setError("");
     try {
-      const u = await login(username.trim().toLowerCase(), password);
+      const u = await login(username.trim().toLowerCase(), password.trim());
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       router.replace(HOME[u.role]);
     } catch (e: any) {
@@ -100,17 +102,30 @@ export default function Login() {
             placeholderTextColor={colors.muted}
           />
           <Text style={styles.label}>Passwort</Text>
-          <TextInput
-            testID="login-password-input"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            style={styles.input}
-            placeholder="Passwort"
-            placeholderTextColor={colors.muted}
-            onSubmitEditing={submit}
-            returnKeyType="go"
-          />
+          <View style={styles.pwRow}>
+            <TextInput
+              testID="login-password-input"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPw}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="off"
+              style={[styles.input, { flex: 1, marginBottom: 0, paddingRight: 52 }]}
+              placeholder="Passwort"
+              placeholderTextColor={colors.muted}
+              onSubmitEditing={submit}
+              returnKeyType="go"
+            />
+            <Pressable
+              testID="login-toggle-password-button"
+              onPress={() => setShowPw((v) => !v)}
+              style={styles.eyeBtn}
+              accessibilityLabel={showPw ? "Passwort verbergen" : "Passwort anzeigen"}
+            >
+              <Icon name={showPw ? "eye-off-outline" : "eye-outline"} size={22} color={colors.muted} />
+            </Pressable>
+          </View>
           {!!error && (
             <Text style={styles.error} testID="login-error-text">
               {error}
@@ -131,6 +146,18 @@ export default function Login() {
             ) : (
               <Text style={styles.submitText}>Anmelden</Text>
             )}
+          </Pressable>
+          <Pressable
+            testID="login-fill-demo-button"
+            onPress={() => {
+              setUsername(DEFAULT_USER[role]);
+              setPassword(DEMO_PASSWORD[role]);
+              setError("");
+            }}
+            style={styles.demoBtn}
+          >
+            <Icon name="account-key-outline" size={18} color={colors.onBrandTertiary} />
+            <Text style={styles.demoBtnText}>Demo-Zugang einsetzen</Text>
           </Pressable>
           <Text style={styles.demo} testID="login-demo-hint">
             Demo: kellner1 / kellner2 · Kellner123!{"\n"}Küche: kueche · Kueche123!{"\n"}Inhaber: inhaber · Inhaber123!
@@ -193,6 +220,19 @@ const useStyles = makeStyles((c) => ({
     marginBottom: 16,
   },
   error: { color: c.error, fontSize: 14, marginBottom: 12, fontWeight: "600" },
+  pwRow: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
+  eyeBtn: { position: "absolute", right: 4, width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  demoBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: c.brandTertiary,
+    marginTop: 12,
+  },
+  demoBtnText: { color: c.onBrandTertiary, fontSize: 15, fontWeight: "700" },
   submit: {
     minHeight: 56,
     borderRadius: 12,

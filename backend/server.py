@@ -301,7 +301,7 @@ async def root():
 @api.post("/auth/login")
 async def login(body: LoginIn):
     doc = await db.users.find_one({"username": body.username.strip().lower()})
-    if not doc or not bcrypt.checkpw(body.password.encode(), doc["password_hash"].encode()):
+    if not doc or not bcrypt.checkpw(body.password.strip().encode(), doc["password_hash"].encode()):
         raise HTTPException(401, "Benutzername oder Passwort falsch")
     user = UserDoc.from_mongo(doc)
     return {"access_token": make_token(user), "token_type": "bearer", "user": public_user(user)}
