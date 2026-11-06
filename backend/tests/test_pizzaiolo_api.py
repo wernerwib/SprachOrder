@@ -117,6 +117,8 @@ class TestOrders:
         assert not any(x["id"] == oid for x in lst)
         lst = requests.get(f"{API}/orders?table=7&active=false", headers=H(waiter)).json()
         assert any(x["id"] == oid and x["status"] == "served" for x in lst)
+        # cleanup: close table 7 so it doesn't stay in 'billing'
+        requests.post(f"{API}/tables/7/close", headers=H(waiter))
 
     def test_kitchen_cannot_create(self, kitchen):
         r = requests.post(f"{API}/orders", headers=H(kitchen), json={"table": 1, "items": [{"menu_id": 1}]})
@@ -160,7 +162,11 @@ class TestVoice:
         r = requests.post(f"{API}/orders", headers=H(waiter), json={"table": 9, "items": [
             {"menu_id": 2, "note_text": "TEST_ extra Pilze", "voice_note_id": nid}]})
         assert r.status_code == 200 and r.json()["items"][0]["voice_note_id"] == nid
-        print("voice order id:", r.json()["id"])
+        oid = r.json()["id"]
+        # cleanup: serve + close table 9
+        for st, tok in (("preparing", kitchen), ("ready", kitchen), ("served", waiter)):
+            requests.patch(f"{API}/orders/{oid}/status", headers=H(tok), json={"status": st})
+        requests.post(f"{API}/tables/9/close", headers=H(waiter))
 
     def test_sine_transcript_empty(self, waiter):
         r = requests.post(f"{API}/voice-notes", headers=H(waiter), files={"audio": ("TEST_b.wav", sine_wav(), "audio/wav")}, timeout=90)

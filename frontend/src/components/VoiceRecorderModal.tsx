@@ -8,7 +8,8 @@ import {
 } from "expo-audio";
 import * as Haptics from "expo-haptics";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Linking, Modal, Platform, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Modal, Platform, Pressable, Text, TextInput, View } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -17,22 +18,28 @@ import Icon from "@/src/components/Icon";
 import { makeStyles, useTheme } from "@/src/theme";
 import { uploadForm } from "@/src/utils/upload";
 
-type Phase = "idle" | "recording" | "uploading" | "done" | "denied" | "blocked" | "error";
+type Phase = "idle" | "recording" | "uploading" | "denied" | "blocked" | "error";
 const MAX_MS = 60000;
+
+export type NoteResult = { voice_note_id: string | null; note_text: string };
 
 type Props = {
   visible: boolean;
   dishName: string;
+  initialText?: string;
+  initialVoiceId?: string | null;
   onClose: () => void;
-  onSaved: (note: { id: string; transcript: string }) => void;
+  onSaved: (note: NoteResult) => void;
 };
 
-export default function VoiceRecorderModal({ visible, dishName, onClose, onSaved }: Props) {
+export default function VoiceRecorderModal({ visible, dishName, initialText, initialVoiceId, onClose, onSaved }: Props) {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recState = useAudioRecorderState(recorder, 250);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState("");
-  const [result, setResult] = useState<{ id: string; transcript: string } | null>(null);
+  const [text, setText] = useState("");
+  const [voiceId, setVoiceId] = useState<string | null>(null);
+  const lastTranscript = useRef("");
   const busy = useRef(false);
   const watchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
   const insets = useSafeAreaInsets();
@@ -43,10 +50,12 @@ export default function VoiceRecorderModal({ visible, dishName, onClose, onSaved
   useEffect(() => {
     if (visible) {
       setPhase("idle");
-      setResult(null);
       setError("");
+      setText(initialText ?? "");
+      setVoiceId(initialVoiceId ?? null);
+      lastTranscript.current = initialText ?? "";
     }
-  }, [visible]);
+  }, [visible, initialText, initialVoiceId]);
 
   useEffect(() => {
     pulse.value = phase === "recording" ? withRepeat(withTiming(1.15, { duration: 600 }), -1, true) : withTiming(1);
@@ -123,8 +132,15 @@ export default function VoiceRecorderModal({ visible, dishName, onClose, onSaved
         throw new Error(msg);
       }
       const data = (await res.json()) as { id: string; transcript: string };
-      setResult(data);
-      setPhase("done");
+      setVoiceId(data.id);
+      if (data.transcript) {
+        setText((prev) => {
+          const unedited = !prev.trim() || prev === lastTranscript.current;
+          return unedited ? data.transcript : `${prev.trim()} ${data.transcript}`;
+        });
+        lastTranscript.current = data.transcript;
+      }
+      setPhase("idle");
     } catch (e: any) {
       console.log("record upload error", e);
       setError(e?.message ?? "Upload fehlgeschlagen");
@@ -145,23 +161,29 @@ export default function VoiceRecorderModal({ visible, dishName, onClose, onSaved
   const seconds = Math.floor((recState.durationMillis ?? 0) / 1000);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
-      <View style={styles.scrim}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={close} statusBarTranslucent navigationBarTranslucent>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.scrim}>
         <Pressable style={{ flex: 1 }} onPress={close} testID="voice-modal-backdrop" />
-        <View style={[styles.sheet, { paddingBottom: insets.bottom + 24 }]} testID="voice-recorder-modal">
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]} testID="voice-recorder-modal">
           <View style={styles.handle} />
-          <Text style={styles.title}>Ergänzung aufsprechen</Text>
+          <Text style={styles.title}>Ergänzung</Text>
           <Text style={styles.subtitle}>{dishName}</Text>
 
+          <Text style={styles.transcriptLabel}>Text (aufsprechen oder tippen)</Text>
+          <TextInput
+            testID="voice-note-text-input"
+            value={text}
+            onChangeText={setText}
+            placeholder="z. B. ohne Zwiebeln, extra scharf"
+            placeholderTextColor={colors.muted}
+            multiline
+            maxLength={300}
+            style={styles.input}
+            editable={phase !== "recording" && phase !== "uploading"}
+          />
+
           {(phase === "idle" || phase === "recording" || phase === "denied") && (
-            <View style={styles.center}>
-              <Text style={styles.hint} testID="voice-hint-text">
-                {phase === "recording"
-                  ? `Aufnahme läuft… ${seconds}s – zum Beenden tippen`
-                  : phase === "denied"
-                    ? "Ohne Mikrofon kann keine Sprachnotiz aufgenommen werden. Tippen Sie erneut, um den Zugriff zu erlauben."
-                    : "Tippen Sie auf das Mikrofon und sprechen Sie z. B. „ohne Zwiebeln, extra scharf“. Dafür wird der Mikrofon-Zugriff benötigt."}
-              </Text>
+            <View style={styles.micRow}>
               <Animated.View style={pulseStyle}>
                 <Pressable
                   testID={phase === "recording" ? "voice-stop-button" : "voice-record-button"}
@@ -169,13 +191,29 @@ export default function VoiceRecorderModal({ visible, dishName, onClose, onSaved
                   style={[styles.micBtn, phase === "recording" && styles.micBtnRec]}
                   accessibilityLabel={phase === "recording" ? "Aufnahme beenden" : "Aufnahme starten"}
                 >
-                  <Icon
-                    name={phase === "recording" ? "stop" : "microphone"}
-                    size={44}
-                    color={colors.onBrandPrimary}
-                  />
+                  <Icon name={phase === "recording" ? "stop" : "microphone"} size={32} color={colors.onBrandPrimary} />
                 </Pressable>
               </Animated.View>
+              <View style={{ flex: 1, gap: 6 }}>
+                <Text style={styles.hintLeft} testID="voice-hint-text">
+                  {phase === "recording"
+                    ? `Aufnahme läuft… ${seconds}s – zum Beenden tippen`
+                    : phase === "denied"
+                      ? "Ohne Mikrofon keine Sprachnotiz. Erneut tippen, um den Zugriff zu erlauben."
+                      : voiceId
+                        ? "Tippen, um neu aufzunehmen."
+                        : "Tippen und sprechen. Dafür wird das Mikrofon benötigt."}
+                </Text>
+                {voiceId && phase !== "recording" && (
+                  <View style={styles.voiceRow} testID="voice-attached">
+                    <Icon name="check-circle" size={16} color={colors.success} />
+                    <Text style={styles.voiceText}>Aufnahme angehängt</Text>
+                    <Pressable testID="voice-remove-audio-button" onPress={() => setVoiceId(null)} hitSlop={12}>
+                      <Text style={styles.removeText}>entfernen</Text>
+                    </Pressable>
+                  </View>
+                )}
+              </View>
             </View>
           )}
 
@@ -189,10 +227,10 @@ export default function VoiceRecorderModal({ visible, dishName, onClose, onSaved
           {phase === "blocked" && (
             <View style={styles.center}>
               <Text style={styles.hint}>
-                Der Mikrofon-Zugriff ist blockiert. Bitte in den Einstellungen erlauben.
+                Der Mikrofon-Zugriff ist blockiert. Bitte in den Einstellungen erlauben – oder den Text eintippen.
               </Text>
-              <Pressable testID="voice-open-settings-button" style={styles.primary} onPress={() => Linking.openSettings()}>
-                <Text style={styles.primaryText}>Einstellungen öffnen</Text>
+              <Pressable testID="voice-open-settings-button" style={styles.secondary} onPress={() => Linking.openSettings()}>
+                <Text style={styles.secondaryText}>Einstellungen öffnen</Text>
               </Pressable>
             </View>
           )}
@@ -202,39 +240,30 @@ export default function VoiceRecorderModal({ visible, dishName, onClose, onSaved
               <Text style={[styles.hint, { color: colors.error }]} testID="voice-error-text">
                 {error}
               </Text>
-              <Pressable testID="voice-retry-button" style={styles.primary} onPress={() => setPhase("idle")}>
-                <Text style={styles.primaryText}>Erneut versuchen</Text>
+              <Pressable testID="voice-retry-button" style={styles.secondary} onPress={() => setPhase("idle")}>
+                <Text style={styles.secondaryText}>Erneut versuchen</Text>
               </Pressable>
             </View>
           )}
 
-          {phase === "done" && result && (
-            <View style={{ gap: 16 }}>
-              <View style={styles.transcriptBox}>
-                <Text style={styles.transcriptLabel}>Erkannter Text</Text>
-                <Text style={styles.transcript} testID="voice-transcript-text">
-                  {result.transcript || "(Kein Text erkannt – die Audioaufnahme wird trotzdem gespeichert)"}
-                </Text>
-              </View>
-              <View style={styles.row}>
-                <Pressable testID="voice-rerecord-button" style={styles.secondary} onPress={() => setPhase("idle")}>
-                  <Text style={styles.secondaryText}>Neu aufnehmen</Text>
-                </Pressable>
-                <Pressable
-                  testID="voice-save-button"
-                  style={[styles.primary, { flex: 1 }]}
-                  onPress={() => {
-                    onSaved(result);
-                    onClose();
-                  }}
-                >
-                  <Text style={styles.primaryText}>Übernehmen</Text>
-                </Pressable>
-              </View>
-            </View>
-          )}
+          <View style={[styles.row, { marginTop: 16 }]}>
+            <Pressable testID="voice-cancel-button" style={styles.secondary} onPress={close}>
+              <Text style={styles.secondaryText}>Abbrechen</Text>
+            </Pressable>
+            <Pressable
+              testID="voice-save-button"
+              disabled={phase === "recording" || phase === "uploading"}
+              style={[styles.primary, { flex: 1 }, (phase === "recording" || phase === "uploading") && { opacity: 0.45 }]}
+              onPress={() => {
+                onSaved({ voice_note_id: voiceId, note_text: text.trim() });
+                onClose();
+              }}
+            >
+              <Text style={styles.primaryText}>Übernehmen</Text>
+            </Pressable>
+          </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -253,10 +282,26 @@ const useStyles = makeStyles((c) => ({
   subtitle: { fontSize: 15, color: c.muted, marginTop: 4, marginBottom: 16 },
   center: { alignItems: "center", gap: 24, paddingVertical: 16 },
   hint: { fontSize: 15, color: c.onSurfaceTertiary, textAlign: "center", lineHeight: 22 },
+  hintLeft: { fontSize: 14, color: c.onSurfaceTertiary, lineHeight: 20 },
+  input: {
+    minHeight: 72,
+    maxHeight: 140,
+    borderRadius: 12,
+    backgroundColor: c.surfaceTertiary,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: c.onSurface,
+    textAlignVertical: "top",
+  },
+  micRow: { flexDirection: "row", alignItems: "center", gap: 16, marginTop: 16 },
+  voiceRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  voiceText: { fontSize: 13, color: c.success, fontWeight: "700" },
+  removeText: { fontSize: 13, color: c.error, fontWeight: "700", textDecorationLine: "underline" },
   micBtn: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: c.brandPrimary,
     alignItems: "center",
     justifyContent: "center",

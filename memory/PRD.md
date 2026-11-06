@@ -16,12 +16,12 @@ Restaurants use apps where waiters send orders per table to the kitchen. The use
 - Status flow: new → preparing → ready (kitchen) → served (waiter)
 
 ## Implemented (June 2026)
+- Iteration 2: quantity per dish (stepper, lines merged), edit/type the note text in the modal, bill per table plus "Tisch abschließen" (paid flag, table status "Rechnung offen"), daily revenue report /report (revenue paid/open, per waiter, top pizza). 20/20 backend tests
 - Login, role-based routing, demo accounts (see test_credentials.md)
 - Orders per table, voice note per dish (record, transcribe, store), kitchen listens and reads
 - Toasts, haptics, microphone permissions with an Open Settings fallback
 - Backend 15/15 tests passing; frontend flows tested
 
 ## Backlog
-- P1: Edit the transcript text by hand / text-only note
-- P1: Quantity per dish, table transfer, bill / payment
-- P2: Daily revenue report, manage the menu in the app, delete voice notes
+- P1: Table transfer, split the bill
+- P2: Manage the menu in the app, delete voice notes, report for past days

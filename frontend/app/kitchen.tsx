@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
-import { Redirect } from "expo-router";
+import { useRouter, Redirect } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import Animated, { FadeInDown, LinearTransition } from "react-native-reanimated";
@@ -25,6 +25,7 @@ const NEXT: Record<string, { status: OrderStatus; label: string; icon: string } 
 
 export default function Kitchen() {
   const { user, logout } = useAuth();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useStyles();
@@ -79,6 +80,14 @@ export default function Kitchen() {
             <Text style={styles.kicker}>{user.display_name}</Text>
             <Text style={styles.title}>Bestellungen</Text>
           </View>
+          <Pressable
+            testID="kitchen-report-button"
+            onPress={() => router.push("/report")}
+            style={[styles.iconBtn, { marginRight: 8 }]}
+            accessibilityLabel="Tagesumsatz"
+          >
+            <Icon name="chart-box-outline" size={22} color={colors.onSurfaceTertiary} />
+          </Pressable>
           <Pressable testID="kitchen-logout-button" onPress={logout} style={styles.iconBtn} accessibilityLabel="Abmelden">
             <Icon name="logout" size={22} color={colors.onSurfaceTertiary} />
           </Pressable>
@@ -156,7 +165,7 @@ export default function Kitchen() {
                 {item.items.map((it, i) => (
                   <View key={it.id} style={[styles.item, i > 0 && styles.itemBorder]}>
                     <Text style={styles.itemName}>
-                      <Text style={styles.itemNo}>1×  </Text>
+                      <Text style={styles.itemNo}>{it.qty ?? 1}×  </Text>
                       {it.name}
                     </Text>
                     {(it.voice_note_id || !!it.note_text) && (

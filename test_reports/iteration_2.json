@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 2: tested qty per dish, typed notes, the bill per table and closing it, the daily report, and regression flows. Backend: 20/20 pytest pass (5 new + 15 regression). Frontend (375x667 web preview): everything requested works end to end. Merging repeated taps into one line with qty, the +/- buttons (min 1), total and footer count are correct. The note modal saves typed text, keeps it on reopen, and Abbrechen closes it. The kitchen ticket shows '2×' and the text note with no play button. The bill shows the warning and a disabled button before serving. After preparing->ready->served, closing shows the toast 'Tisch 4 abgeschlossen · 51,00 €', goes back to /waiter and the table shows Frei. The 'Rechnung offen' tile shows. Both report buttons open /report with total, paid, open, top dish and per-waiter list. Login and logout for both roles work. No deprecated Expo packages found. Only minor issues remain (see action_items).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/tables/{n}/close", "issue": "Race condition: it checks that all orders are served with find(), then calls update_many() with the same filter {table, paid != true}. An order sent between the two calls is marked paid while still 'new'. Update by the checked ids ({'id': {'$in': ids}}) instead."},
+      {"endpoint": "POST /api/tables/{n}/close", "issue": "Table numbers outside 1-10 (e.g. 99) return 400 'Keine offene Rechnung' instead of 404. GET /bill returns 404 for these."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Bill screen after close", "issue": "router.replace('/waiter') leaves /waiter/table/{n} in history. Browser back from the tables screen goes to /waiter/table/4, and on native the stack becomes [waiter, table, waiter]. Use router.dismissTo('/waiter') or router.dismissAll(). Reference: /app/frontend/app/waiter/bill/[id].tsx:37", "testID": "bill-close-table-button", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Global toast", "issues": ["The toast sits over the screen header (back button and title) for a few seconds, e.g. 'Als serviert markiert' covers the bill header. Consider placing it below the header or at the bottom."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_billing_reports.py", "/app/backend/tests/test_pizzaiolo_api.py", "/app/test_reports/pytest/pytest_results_iter2.xml"],
+  "action_items": [
+    "close_table: update by the ids that were checked, not the open filter, to avoid marking a new unserved order as paid",
+    "close_table: return 404 for table numbers outside 1-10, as /bill does",
+    "Bill screen: after closing, use router.dismissTo('/waiter') instead of router.replace so the table screen is not left in the stack",
+    "Optional: use username instead of waiter_name as the React key in the report per-waiter list (report.tsx:128)"
+  ],
+  "critical_code_review_comments": [
+    "The report filters on created_at. An order created before midnight but paid today counts on the previous day, and revenue_paid only covers orders created today. This is fine if intended.",
+    "The startup migration marks old served orders without a 'paid' field as paid. It is safe and runs every time.",
+    "VoiceRecorderModal: saving empty text with no audio gives no note (checked). Typed text is trimmed on the server (checked)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_billing_reports.py (new)",
+    "/app/backend/tests/test_pizzaiolo_api.py (added cleanup: close tables 7 and 9 after the regression orders)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100% of requested flows (one minor navigation issue)"},
+  "seed_data_creation": "No seed data. TEST orders on tables 4, 5, 9, 10 and 7 were served and closed (paid), so they count in today's report revenue as paid. Table 3's pre-existing 'new' order was not touched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Kitchen screen has tabs kitchen-tab-new/preparing/ready. A ticket moves tabs after ticket-advance-{id}, so switch tabs before advancing again. The tests close their own tables. The pytest run uses xdist (parallel), so report-delta assertions use >=. Recording is not testable headless.",
+  "rca_of_issue": ""
+}

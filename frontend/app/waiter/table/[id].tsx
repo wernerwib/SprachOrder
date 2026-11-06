@@ -15,7 +15,7 @@ import VoiceRecorderModal from "@/src/components/VoiceRecorderModal";
 import { useToast } from "@/src/toast";
 import { makeStyles, useTheme } from "@/src/theme";
 
-type Draft = { key: string; menu_id: number; name: string; price: number; note_text?: string; voice_note_id?: string };
+type Draft = { key: string; menu_id: number; name: string; price: number; qty: number; note_text?: string; voice_note_id?: string | null };
 
 export default function TableOrder() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -43,7 +43,12 @@ export default function TableOrder() {
         method: "POST",
         body: {
           table,
-          items: draft.map((d) => ({ menu_id: d.menu_id, note_text: d.note_text, voice_note_id: d.voice_note_id })),
+          items: draft.map((d) => ({
+            menu_id: d.menu_id,
+            qty: d.qty,
+            note_text: d.note_text || undefined,
+            voice_note_id: d.voice_note_id || undefined,
+          })),
         },
       }),
     onSuccess: () => {
@@ -71,10 +76,17 @@ export default function TableOrder() {
 
   const add = (m: MenuItem) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    setDraft((d) => [...d, { key: `${Date.now()}-${Math.random()}`, menu_id: m.id, name: m.name, price: m.price }]);
+    setDraft((d) => {
+      const plain = d.find((x) => x.menu_id === m.id && !x.note_text && !x.voice_note_id);
+      if (plain) return d.map((x) => (x.key === plain.key ? { ...x, qty: Math.min(50, x.qty + 1) } : x));
+      return [...d, { key: `${Date.now()}-${Math.random()}`, menu_id: m.id, name: m.name, price: m.price, qty: 1 }];
+    });
   };
+  const changeQty = (key: string, delta: number) =>
+    setDraft((d) => d.map((x) => (x.key === key ? { ...x, qty: Math.max(1, Math.min(50, x.qty + delta)) } : x)));
   const remove = (key: string) => setDraft((d) => d.filter((x) => x.key !== key));
-  const total = draft.reduce((s, d) => s + d.price, 0);
+  const total = draft.reduce((s, d) => s + d.price * d.qty, 0);
+  const count = draft.reduce((s, d) => s + d.qty, 0);
 
   return (
     <View style={styles.root}>
@@ -85,6 +97,11 @@ export default function TableOrder() {
         <Text style={styles.title} testID="table-title">
           Tisch {table}
         </Text>
+        <View style={{ flex: 1 }} />
+        <Pressable testID="table-bill-button" onPress={() => router.push(`/waiter/bill/${table}`)} style={styles.billBtn}>
+          <Icon name="receipt-text-outline" size={20} color={colors.onBrandSecondary} />
+          <Text style={styles.billText}>Rechnung</Text>
+        </Pressable>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 140 + insets.bottom }}>
@@ -117,10 +134,34 @@ export default function TableOrder() {
             <Animated.View key={d.key} entering={FadeIn} layout={LinearTransition} style={styles.draftRow} testID={`draft-item-${i}`}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.draftName}>{d.name}</Text>
-                <Text style={styles.draftPrice}>{euro(d.price)}</Text>
-                {d.voice_note_id && (
+                <Text style={styles.draftPrice}>
+                  {d.qty} × {euro(d.price)} = {euro(d.qty * d.price)}
+                </Text>
+                <View style={styles.stepper}>
+                  <Pressable
+                    testID={`draft-minus-${i}`}
+                    onPress={() => changeQty(d.key, -1)}
+                    disabled={d.qty <= 1}
+                    style={[styles.stepBtn, d.qty <= 1 && { opacity: 0.4 }]}
+                    accessibilityLabel="Menge verringern"
+                  >
+                    <Icon name="minus" size={20} color={colors.onSurface} />
+                  </Pressable>
+                  <Text style={styles.stepQty} testID={`draft-qty-${i}`}>
+                    {d.qty}
+                  </Text>
+                  <Pressable
+                    testID={`draft-plus-${i}`}
+                    onPress={() => changeQty(d.key, 1)}
+                    style={styles.stepBtn}
+                    accessibilityLabel="Menge erhöhen"
+                  >
+                    <Icon name="plus" size={20} color={colors.onSurface} />
+                  </Pressable>
+                </View>
+                {(d.voice_note_id || !!d.note_text) && (
                   <View style={styles.noteChip}>
-                    <Icon name="microphone" size={14} color={colors.onBrandTertiary} />
+                    <Icon name={d.voice_note_id ? "microphone" : "text"} size={14} color={colors.onBrandTertiary} />
                     <Text style={styles.noteText} testID={`draft-note-${i}`} numberOfLines={3}>
                       {d.note_text || "Sprachnotiz (ohne Text)"}
                     </Text>
@@ -130,13 +171,13 @@ export default function TableOrder() {
               <Pressable
                 testID={`draft-mic-${i}`}
                 onPress={() => setRecordFor(d)}
-                style={[styles.micBtn, d.voice_note_id && { backgroundColor: colors.brandPrimary }]}
-                accessibilityLabel="Sprachnotiz aufnehmen"
+                style={[styles.micBtn, (d.voice_note_id || !!d.note_text) && { backgroundColor: colors.brandPrimary }]}
+                accessibilityLabel="Ergänzung hinzufügen"
               >
                 <Icon
-                  name={d.voice_note_id ? "microphone-message" : "microphone-plus"}
+                  name={d.voice_note_id || d.note_text ? "microphone-message" : "microphone-plus"}
                   size={24}
-                  color={d.voice_note_id ? colors.onBrandPrimary : colors.onBrandTertiary}
+                  color={d.voice_note_id || d.note_text ? colors.onBrandPrimary : colors.onBrandTertiary}
                 />
               </Pressable>
               <Pressable testID={`draft-remove-${i}`} onPress={() => remove(d.key)} style={styles.removeBtn} accessibilityLabel="Entfernen">
@@ -163,13 +204,15 @@ export default function TableOrder() {
                 </View>
                 {o.items.map((it) => (
                   <View key={it.id} style={{ marginTop: 8 }}>
-                    <Text style={styles.orderItem}>{it.name}</Text>
-                    {it.voice_note_id && (
+                    <Text style={styles.orderItem}>
+                      {it.qty ?? 1}× {it.name}
+                    </Text>
+                    {(it.voice_note_id || !!it.note_text) && (
                       <View style={styles.orderNoteRow}>
                         <Text style={styles.orderNote} numberOfLines={2}>
                           „{it.note_text || "Sprachnotiz"}“
                         </Text>
-                        <PlayVoiceButton voiceNoteId={it.voice_note_id} testID={`waiter-play-${it.id}`} />
+                        {it.voice_note_id && <PlayVoiceButton voiceNoteId={it.voice_note_id} testID={`waiter-play-${it.id}`} />}
                       </View>
                     )}
                   </View>
@@ -193,7 +236,7 @@ export default function TableOrder() {
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
         <View>
-          <Text style={styles.footerLabel}>{draft.length} Gericht(e)</Text>
+          <Text style={styles.footerLabel}>{count} Gericht(e)</Text>
           <Text style={styles.footerTotal} testID="draft-total">
             {euro(total)}
           </Text>
@@ -218,10 +261,14 @@ export default function TableOrder() {
       <VoiceRecorderModal
         visible={!!recordFor}
         dishName={recordFor?.name ?? ""}
+        initialText={recordFor?.note_text ?? ""}
+        initialVoiceId={recordFor?.voice_note_id ?? null}
         onClose={() => setRecordFor(null)}
         onSaved={(note) => {
           const key = recordFor?.key;
-          setDraft((d) => d.map((x) => (x.key === key ? { ...x, voice_note_id: note.id, note_text: note.transcript } : x)));
+          setDraft((d) =>
+            d.map((x) => (x.key === key ? { ...x, voice_note_id: note.voice_note_id, note_text: note.note_text } : x)),
+          );
         }}
       />
     </View>
@@ -242,6 +289,26 @@ const useStyles = makeStyles((c) => ({
   },
   iconBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   title: { fontSize: 24, fontWeight: "800", color: c.onSurface },
+  billBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 44,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: c.brandSecondary,
+  },
+  billText: { color: c.onBrandSecondary, fontWeight: "700", fontSize: 14 },
+  stepper: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 8 },
+  stepBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: c.surfaceTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepQty: { minWidth: 32, textAlign: "center", fontSize: 18, fontWeight: "800", color: c.onSurface },
   section: { fontSize: 13, fontWeight: "800", color: c.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 },
   menuRow: {
     flexDirection: "row",

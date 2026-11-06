@@ -15,6 +15,7 @@ export type OrderItem = {
   menu_id: number;
   name: string;
   price: number;
+  qty: number;
   note_text?: string | null;
   voice_note_id?: string | null;
 };
@@ -31,9 +32,26 @@ export type Order = {
 };
 export type TableInfo = {
   table: number;
-  status: "free" | "new" | "preparing" | "ready";
+  status: "free" | "new" | "preparing" | "ready" | "billing";
   open_orders: number;
   total: number;
+};
+export type Bill = {
+  table: number;
+  lines: { menu_id: number; name: string; price: number; qty: number; amount: number }[];
+  total: number;
+  orders: number;
+  all_served: boolean;
+};
+export type Report = {
+  date: string;
+  revenue_total: number;
+  revenue_paid: number;
+  revenue_open: number;
+  orders_count: number;
+  items_count: number;
+  by_waiter: { username: string; waiter_name: string; orders: number; revenue: number }[];
+  top_dishes: { menu_id: number; name: string; qty: number; revenue: number }[];
 };
 
 export async function api<T>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
@@ -80,6 +98,7 @@ export const STATUS_LABEL: Record<string, string> = {
   preparing: "In Zubereitung",
   ready: "Abholbereit",
   served: "Serviert",
+  billing: "Rechnung offen",
 };
 
 export const minutesSince = (iso: string) => Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));

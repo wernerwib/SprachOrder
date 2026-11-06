@@ -10,7 +10,7 @@ import Icon from "@/src/components/Icon";
 import { makeStyles, ThemeColors, useTheme } from "@/src/theme";
 
 const statusColor = (c: ThemeColors, s: TableInfo["status"]) =>
-  ({ free: c.muted, new: c.info, preparing: c.warning, ready: c.success })[s];
+  ({ free: c.muted, new: c.info, preparing: c.warning, ready: c.success, billing: c.brandPrimary })[s];
 
 export default function WaiterTables() {
   const { user, logout } = useAuth();
@@ -37,6 +37,14 @@ export default function WaiterTables() {
           <Text style={styles.kicker}>{user.display_name}</Text>
           <Text style={styles.title}>Tische</Text>
         </View>
+        <Pressable
+          testID="waiter-report-button"
+          onPress={() => router.push("/report")}
+          style={[styles.iconBtn, { marginRight: 8 }]}
+          accessibilityLabel="Tagesumsatz"
+        >
+          <Icon name="chart-box-outline" size={22} color={colors.onSurfaceTertiary} />
+        </Pressable>
         <Pressable testID="waiter-logout-button" onPress={logout} style={styles.iconBtn} accessibilityLabel="Abmelden">
           <Icon name="logout" size={22} color={colors.onSurfaceTertiary} />
         </Pressable>
