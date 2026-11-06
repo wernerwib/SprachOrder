@@ -1,0 +1,29 @@
+{
+  "summary": "Frontend web preview test of the 3 iteration-8 follow-up voice fixes, using a FAKE getUserMedia (WebAudio stream) to drive the real expo-audio MediaRecorder. Fix 1 PASS: a near-silent 1.6 s recording (32 KB webm, duration_ms=2037) got an empty transcript. voice-no-text-notice ('Kein Text erkannt. Die Aufnahme ist angehängt … Mikrofon prüfen …') showed under 'Aufnahme angehängt' and the input stayed empty. Starting a new recording cleared the notice right away. The short1.mp3 stream then gave 'Ohne Zwiebeln.' with no notice. Fix 2 PASS: Abbrechen and the backdrop were each tapped about 300 ms after stop, while voice-uploading was showing. The modal closed, no new 'voice upload from' log line appeared within 5 s, and draft-note-0 stayed 'Ohne Zwiebeln.'. Fix 3 PASS: Chromium reports isTypeSupported('audio/webm')=true and the log shows name=aufnahme.webm, type=audio/webm. With isTypeSupported patched to reject webm, the log shows name=aufnahme.mp4, type=audio/mp4. This matches expo-audio's own logic: it uses audio/webm when supported, otherwise the browser default. Regression PASS: the transcript was saved to draft-note-0, the order was sent, and the kitchen ticket for Tisch 7 shows ERGÄNZUNG 'Ohne Zwiebeln.' with the Anhören button. One new edge-case bug: if the modal is reopened within about 1 s of a cancel during the tail phase, the old stop() keeps running and shows a raw English expo-audio error in the new modal. There was no upload.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "VoiceRecorderModal stop()/close() race on quick reopen", "issue": "Reproduced: record, stop after 200 ms, tap Abbrechen, then tap draft-mic-0 again within about 150 ms. The reopened modal shows phase 'error' with the raw English text 'Cannot start an audio recording without initializing a MediaRecorder. Run prepareToRecordAsync() …'. The console logs 'record upload error' from AudioRecorderWeb.stop. No upload happened and the draft is unchanged. Reference: /app/frontend/src/components/VoiceRecorderModal.tsx:61 and :125-127", "testID": "voice-error-text", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/tests/ui/cleanup_iter9.py", "/app/backend/tests/test_voice_short.py"],
+  "action_items": [
+    "VoiceRecorderModal: the visible-effect (line 61) and start() (line 86) reset cancelled.current=false. A stop() still waiting in its tail therefore continues after a quick reopen, calls recorder.stop() on the recorder that close() already stopped, and sets phase 'error' in the new session. Use a session/attempt counter ref: increment it in close() and start(), capture it in stop(), and return if it changed. Do this after the tail wait, after recorder.stop() and after the upload. Also show a German message instead of the raw e.message for recorder errors.",
+    "Optional: when stop() returns early because of a cancel, also call setAudioModeAsync({allowsRecording:false}). On iOS it currently stays in record mode after a cancel during the tail."
+  ],
+  "critical_code_review_comments": [
+    "Fix 3 logic (VoiceRecorderModal.tsx:131-144) matches expo-audio's AudioRecorder.web.js. That code uses mimeType audio/webm only if MediaRecorder.isTypeSupported('audio/webm'), otherwise the browser default (Safari: audio/mp4). Correct.",
+    "If the cancel comes during the actual upload (after recorder.stop), the POST still goes out and only the result is ignored (line 155). This is acceptable, but it leaves an orphan voice_note in the DB.",
+    "Test artifact: the pulsing voice-stop-button (withRepeat scale) is never 'stable' for Playwright, so stop needs click(force=True). Without it, Playwright waits until timeout (the first run produced a 24 s recording)."
+  ],
+  "updated_files": ["/app/tests/ui/cleanup_iter9.py (new, test cleanup helper only)"],
+  "success_rate": {"backend": "not requested", "frontend": "100% of requested checks (4/4); 1 new low-priority edge-case bug"},
+  "seed_data_creation": "One test order on Tisch 7 (1x Margherita, 'Ohne Zwiebeln.') was sent, then advanced to served and closed through the API (cleanup_iter9.py). This adds a 12.00 € payment by kellner1 to today's revenue report. About 6 voice_notes docs and uploaded audio objects remain (no delete endpoint). Tisch 7 is free again.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Fake mic: page.add_init_script overrides navigator.mediaDevices.getUserMedia. A window.__fakeMode flag switches between the decoded /tmp/short1.mp3 (base64 read in Python) and low-amplitude noise (empty transcript, more than 300 B). Click voice-stop-button with force=True (pulse animation). Read /var/log/supervisor/backend.err.log for 'voice upload from' lines to count uploads. Simulate Safari by patching MediaRecorder.isTypeSupported to reject webm. Clean up with /app/tests/ui/cleanup_iter9.py (table 7 only).",
+  "rca_of_issue": "Quick-reopen race: close() sets cancelled=true and stops the recorder. Reopening resets cancelled=false in the visible effect before the old stop() wakes from its 400–1200 ms tail. That stop() then calls recorder.stop() on an already stopped web recorder, which throws, and its catch calls setError/setPhase('error') in the new session. Mitigation: guard each stop() with a per-session token instead of a shared boolean."
+}

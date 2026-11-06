@@ -13,7 +13,7 @@ import bcrypt
 import jwt
 import requests
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -663,10 +663,20 @@ AUDIO_TYPES = {"m4a": "audio/mp4", "mp4": "audio/mp4", "webm": "audio/webm", "wa
 
 
 @api.post("/voice-notes")
-async def upload_voice(audio: UploadFile = File(...), user: UserDoc = Depends(require_role("waiter"))):
+async def upload_voice(
+    audio: UploadFile = File(...),
+    duration_ms: Optional[int] = Form(None),
+    user: UserDoc = Depends(require_role("waiter")),
+):
     data = await audio.read()
-    if len(data) < 2000:
-        raise HTTPException(400, "Aufnahme zu kurz – bitte länger sprechen")
+    logger.info("voice upload from %s: %d bytes, name=%s, type=%s, duration_ms=%s",
+                user.username, len(data), audio.filename, audio.content_type, duration_ms)
+    if len(data) < 300:
+        raise HTTPException(
+            400,
+            "Es kam kein Ton an – die Aufnahme ist leer. Bitte Mikrofon prüfen "
+            "(im Android-Emulator: ⋯ → Microphone → „Virtual microphone uses host audio input“ einschalten).",
+        )
     if len(data) > 25 * 1024 * 1024:
         raise HTTPException(400, "Aufnahme zu groß")
     ext = (audio.filename or "aufnahme.m4a").rsplit(".", 1)[-1].lower()

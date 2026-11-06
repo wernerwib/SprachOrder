@@ -138,8 +138,8 @@ class TestOrders:
 # --- Voice notes ---
 class TestVoice:
     def test_small_rejected(self, waiter):
-        r = requests.post(f"{API}/voice-notes", headers=H(waiter), files={"audio": ("a.wav", b"x" * 500, "audio/wav")})
-        assert r.status_code == 400
+        r = requests.post(f"{API}/voice-notes", headers=H(waiter), files={"audio": ("a.wav", b"x" * 200, "audio/wav")})
+        assert r.status_code == 400 and "kein Ton" in r.json()["detail"]
 
     def test_kitchen_cannot_upload(self, kitchen):
         r = requests.post(f"{API}/voice-notes", headers=H(kitchen), files={"audio": ("a.wav", sine_wav(), "audio/wav")})

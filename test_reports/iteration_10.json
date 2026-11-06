@@ -1,0 +1,27 @@
+{
+  "summary": "Frontend web preview retest of the iteration-9 quick-reopen race in VoiceRecorderModal. It used a fake getUserMedia (WebAudio stream from /tmp/short1.mp3, or low-amplitude noise) to drive the real expo-audio recorder at a 375x667 viewport, logged in as kellner1 on Tisch 7. RACE FIX PASS (2 timing variants). A1: record 0.5 s, stop, Abbrechen after 300 ms (voice-uploading was showing), reopen draft-mic-0 after 150 ms, record after 100 ms more. A2: same, but reopen after 400 ms and record after 450 ms more. In both, no voice-error-text appeared and 'Cannot start' was not on the page. The new recording ran normally and was transcribed as 'Ohne Zwiebeln.'. backend.err.log showed exactly 1 new 'voice upload from' line per variant, for the new recording only (duration_ms ≈ 3.2 s, matching the new recording). The abandoned recording was not uploaded. GERMAN ERROR PASS: with an aborted /api/voice-notes request, the modal shows 'Aufnahme fehlgeschlagen – bitte erneut versuchen.'. A server 400 detail ('Es kam kein Ton an – …') is shown as is. The real backend returns 400 with that German detail for a 200 B file (checked with curl). REGRESSION PASS: the transcript was saved to draft-note-0 ('Ohne Zwiebeln.'). A silent recording shows voice-no-text-notice and 'Aufnahme angehängt'. Cancel 300 ms after stop gave 0 new uploads within 5 s, the modal closed, and draft-note-0 was unchanged. No deprecated Expo packages were found in the reviewed file (it uses expo-audio).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "VoiceRecorderModal subtitle", "issue": "Cosmetic: during the fade-out after Abbrechen, the dish-name subtitle disappears, probably because the parent clears dishName before the fade animation ends. Low priority.", "testID": "voice-recorder-modal", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/tests/ui/iter10_voice_race.py", "/app/tests/ui/iter10_fake_mic.js"],
+  "action_items": [
+    "None required. Optional: keep the last dishName during the modal fade-out so the subtitle does not vanish."
+  ],
+  "critical_code_review_comments": [
+    "The session counter is checked after the tail wait, after the upload and in catch. That covers the race. Note: when recorder.stop() itself throws after the session changed, the catch returns silently. That is correct.",
+    "There is no endpoint to delete voice notes. Uploads from tests remain orphaned in db.voice_notes (3 from this run: A1, A2 and the silent test). Consider a TTL or cleanup for voice notes that are not linked to an order."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (1 curl check passed)", "frontend": "100%"},
+  "seed_data_creation": "No orders or tables were created. Table 7 is still free. 3 orphan voice_notes were uploaded by kellner1; there is no delete API.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run the UI test with browser_automation by compiling /app/tests/ui/iter10_voice_race.py with ast.PyCF_ALLOW_TOP_LEVEL_AWAIT and eval it with {'page': page}. The fake mic is /app/tests/ui/iter10_fake_mic.js; window.__fakeMode is 'speech' or 'noise'. Screenshots must be .jpeg when quality is set. The frontend env var is EXPO_PUBLIC_BACKEND_URL.",
+  "rca_of_issue": "The iteration-9 race is fixed. close() and start() increment session.current, and stop() captures it and returns early when it changed. So the old stop() no longer calls recorder.stop() on the new session's recorder, and it does not set an error phase."
+}

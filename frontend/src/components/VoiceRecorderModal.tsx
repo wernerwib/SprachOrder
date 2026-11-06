@@ -20,6 +20,7 @@ import { uploadForm } from "@/src/utils/upload";
 
 type Phase = "idle" | "recording" | "uploading" | "denied" | "blocked" | "error";
 const MAX_MS = 60000;
+const MIN_MS = 1200;
 
 export type NoteResult = { voice_note_id: string | null; note_text: string };
 
@@ -40,6 +41,9 @@ export default function VoiceRecorderModal({ visible, dishName, initialText, ini
   const [text, setText] = useState("");
   const [voiceId, setVoiceId] = useState<string | null>(null);
   const lastTranscript = useRef("");
+  const startedAt = useRef(0);
+  const session = useRef(0);
+  const [notice, setNotice] = useState("");
   const busy = useRef(false);
   const watchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
   const insets = useSafeAreaInsets();
@@ -53,6 +57,7 @@ export default function VoiceRecorderModal({ visible, dishName, initialText, ini
       setError("");
       setText(initialText ?? "");
       setVoiceId(initialVoiceId ?? null);
+      setNotice("");
       lastTranscript.current = initialText ?? "";
     }
   }, [visible, initialText, initialVoiceId]);
@@ -77,6 +82,8 @@ export default function VoiceRecorderModal({ visible, dishName, initialText, ini
   const start = async () => {
     if (busy.current) return;
     busy.current = true;
+    session.current += 1;
+    setNotice("");
     try {
       let perm = await getRecordingPermissionsAsync();
       if (!perm.granted) {
@@ -93,6 +100,7 @@ export default function VoiceRecorderModal({ visible, dishName, initialText, ini
       await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });
       await recorder.prepareToRecordAsync();
       recorder.record();
+      startedAt.current = Date.now();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       setPhase("recording");
       watchdog.current = setTimeout(() => stop(), MAX_MS);
@@ -108,20 +116,32 @@ export default function VoiceRecorderModal({ visible, dishName, initialText, ini
   const stop = async () => {
     if (watchdog.current) clearTimeout(watchdog.current);
     setPhase("uploading");
+    const mySession = session.current;
     try {
+      // keep recording a moment longer: very short inputs stay at least ~1.2 s and the
+      // last syllable is not cut off when stop is tapped while still speaking
+      const elapsed = Date.now() - startedAt.current;
+      await new Promise((r) => setTimeout(r, Math.max(400, MIN_MS - elapsed)));
+      if (session.current !== mySession) return; // modal closed or a new recording started meanwhile
+      const durationMs = Date.now() - startedAt.current;
       await recorder.stop();
       await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false });
       const uri = recorder.uri;
-      if (!uri) throw new Error("Keine Aufnahme vorhanden");
+      if (!uri) throw Object.assign(new Error("Keine Aufnahme vorhanden"), { own: true });
       const isWeb = Platform.OS === "web";
+      const webMp4 =
+        isWeb && typeof MediaRecorder !== "undefined" && !MediaRecorder.isTypeSupported?.("audio/webm");
       const res = await uploadForm(`${API_URL}/voice-notes`, {
         headers: { Authorization: `Bearer ${getAuthToken()}` },
+        fields: { duration_ms: String(durationMs) },
         files: {
-          audio: {
-            uri,
-            name: isWeb ? "aufnahme.webm" : "aufnahme.m4a",
-            mimeType: isWeb ? "audio/webm" : "audio/m4a",
-          },
+          // no mimeType on native: re-wrapping the native file Blob can lose its bytes;
+          // the server derives the audio type from the file extension
+          audio: isWeb
+            ? webMp4
+              ? { uri, name: "aufnahme.mp4", mimeType: "audio/mp4" }
+              : { uri, name: "aufnahme.webm", mimeType: "audio/webm" }
+            : { uri, name: "aufnahme.m4a" },
         },
       });
       if (!res.ok) {
@@ -129,10 +149,16 @@ export default function VoiceRecorderModal({ visible, dishName, initialText, ini
         try {
           msg = (await res.json()).detail ?? msg;
         } catch {}
-        throw new Error(msg);
+        throw Object.assign(new Error(msg), { own: true });
       }
       const data = (await res.json()) as { id: string; transcript: string };
+      if (session.current !== mySession) return;
       setVoiceId(data.id);
+      setNotice(
+        data.transcript
+          ? ""
+          : "Kein Text erkannt. Die Aufnahme ist angehängt. Bitte deutlicher sprechen oder Mikrofon prüfen (im Emulator: ⋯ → Microphone → „Virtual microphone uses host audio input“).",
+      );
       if (data.transcript) {
         setText((prev) => {
           const unedited = !prev.trim() || prev === lastTranscript.current;
@@ -143,16 +169,19 @@ export default function VoiceRecorderModal({ visible, dishName, initialText, ini
       setPhase("idle");
     } catch (e: any) {
       console.log("record upload error", e);
-      setError(e?.message ?? "Upload fehlgeschlagen");
+      if (session.current !== mySession) return;
+      setError(e?.own ? e.message : "Aufnahme fehlgeschlagen – bitte erneut versuchen.");
       setPhase("error");
     }
   };
 
   const close = () => {
-    if (phase === "recording") {
+    if (phase === "recording" || phase === "uploading") {
+      session.current += 1; // abandon the running recording/upload
       try {
-        recorder.stop().catch(() => {});
+        if (recorder.isRecording) recorder.stop().catch(() => {});
       } catch {}
+      setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false }).catch(() => {});
       if (watchdog.current) clearTimeout(watchdog.current);
     }
     onClose();
@@ -212,6 +241,11 @@ export default function VoiceRecorderModal({ visible, dishName, initialText, ini
                       <Text style={styles.removeText}>entfernen</Text>
                     </Pressable>
                   </View>
+                )}
+                {!!notice && phase === "idle" && (
+                  <Text style={styles.notice} testID="voice-no-text-notice">
+                    {notice}
+                  </Text>
                 )}
               </View>
             </View>
@@ -283,6 +317,7 @@ const useStyles = makeStyles((c) => ({
   center: { alignItems: "center", gap: 24, paddingVertical: 16 },
   hint: { fontSize: 15, color: c.onSurfaceTertiary, textAlign: "center", lineHeight: 22 },
   hintLeft: { fontSize: 14, color: c.onSurfaceTertiary, lineHeight: 20 },
+  notice: { fontSize: 13, color: c.warning, fontWeight: "700", lineHeight: 18 },
   input: {
     minHeight: 72,
     maxHeight: 140,

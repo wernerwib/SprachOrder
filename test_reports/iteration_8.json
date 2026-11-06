@@ -1,0 +1,36 @@
+{
+  "summary": "Voice upload/transcription fix verified. Backend: 22/22 pytest pass (new test_voice_short.py + legacy TestVoice). Short German TTS clips are transcribed exactly: short1.mp3 -> 'Ohne Zwiebeln.', short2.mp3 -> 'Extra scharf.', and the m4a/AAC versions made with ffmpeg (9.3 KB, 3.9 KB ~0.9 s mono, 5.3 KB) give the same text. An m4a sent as application/octet-stream (the native no-mimeType path) works too. The old 2000 B limit is gone: 300/1500 B and a 2.1 KB m4a get 200, files under 300 B (0/44/299) get 400 with the new 'Es kam kein Ton an …Android-Emulator…' text, files over 25 MB get 400, the kitchen token gets 403 and no token gets 401. The 'voice upload from kellner1: N bytes … duration_ms=…' log line is present. Frontend web run used a FAKE getUserMedia that plays short1.mp3 through WebAudio into the real expo-audio MediaRecorder pipeline. Flow: login, Tisch 7, add Margherita, draft-mic-0, modal, typed 'TEST_ ohne Oliven', tapped record and then stop after only ~300 ms. The recording was extended to MIN_MS (log: 13848 B webm, duration_ms=1200), the upload returned 200 'Ohne Zwiebeln.', and the transcript was appended to the typed text. voice-save-button closed the modal and draft-note-0 shows the text. A silent fake stream produced a 110 B webm; the UI shows the new red error plus 'Erneut versuchen'. Kitchen regression: the ticket shows ERGÄNZUNG 'Ohne Zwiebeln.' and the ticket-play button 'Anhören' (113x44). No deprecated Expo packages (expo-audio 58 used).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/voice-notes", "issue": "A silent but valid recording is accepted with 200 and transcript ''. This is what an emulator with the mic off produces. Reproduced with ffmpeg: a 1.6 s silent 44.1 kHz stereo AAC m4a is only 1521 B. Transcription exceptions are also swallowed into ''. The client cannot tell 'nothing recognized' from success. Suggest returning a flag such as recognized=false / transcription_error."},
+      {"endpoint": "POST /api/voice-notes", "issue": "With very low quality audio (8 kHz / 8 kbps, 2.1 KB) the model hallucinated English text 'On it Stephen.' even with language=de. Real HIGH_QUALITY recordings are fine. This is only a note."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "VoiceRecorderModal empty transcript", "issue": "When the upload returns 200 with transcript '' (silent mic ≥300 B, or a transcription failure), the modal shows 'Aufnahme angehängt' with an empty text box and no hint. On the Android emulator with the mic off the user still gets no text and now no explanation, which is the original complaint in a new form. Show a hint such as 'Kein Text erkannt – Mikrofon prüfen / bitte erneut sprechen'.", "testID": "voice-attached", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_voice_short.py", "/app/backend/tests/test_pizzaiolo_api.py", "/app/backend/tests/fixtures/", "/app/test_reports/pytest/iteration_8_voice.xml"],
+  "action_items": [
+    "VoiceRecorderModal.stop(): if data.transcript is empty, show a visible hint (e.g. 'Kein Text erkannt – bitte Mikrofon prüfen und erneut sprechen') instead of only 'Aufnahme angehängt'. Optionally the backend should return a recognized/transcription_error flag.",
+    "VoiceRecorderModal: during the 400–1200 ms tail wait the phase is already 'uploading', so close()/Abbrechen no longer stops the recorder. stop() then keeps running, uploads after the modal has closed, and can call setVoiceId after a reopen. Add a cancelled ref and stop the recorder in close() for the 'uploading' phase too.",
+    "Web only: the upload always uses name 'aufnahme.webm' and mimeType audio/webm. Safari/iOS-web MediaRecorder produces audio/mp4, so the file is mislabeled. Derive the extension from the blob type."
+  ],
+  "critical_code_review_comments": [
+    "server.py upload_voice: limits and message are correct. Type is derived from the extension, so octet-stream from native works (tested).",
+    "upload.ts native path without mimeType returns the raw expo/fetch Blob without re-wrapping. This is correct.",
+    "server.py is 832 lines (>700). Consider splitting the routers (voice, billing, reports)."
+  ],
+  "updated_files": ["/app/backend/tests/test_voice_short.py (new)", "/app/backend/tests/test_pizzaiolo_api.py (test_small_rejected now 200 B + 'kein Ton' message; 500 B is no longer rejected under the new rule)", "/app/backend/tests/fixtures/*.mp3|*.m4a (new audio fixtures)"],
+  "success_rate": {"backend": "100% (22/22)", "frontend": "100% of tested flows"},
+  "seed_data_creation": "TEST orders on tables 7/8/9 were created, then served and closed (tables free again). About 15 voice_notes docs were created by kellner1 during tests; there is no delete endpoint, so they were left in the DB. Tables 2 and 3 (pre-existing orders) were not touched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "ffmpeg is not installed system-wide. The static binary is at /tmp/iff/imageio_ffmpeg/binaries/ffmpeg-linux-aarch64-v9.0.2 (pip --target /tmp/iff imageio-ffmpeg). Run pytest with -n 0 (xdist is on by default and breaks the shared CREATED dict in test_voice_short). Web mic test: page.add_init_script overriding navigator.mediaDevices.getUserMedia with WebAudio createMediaStreamDestination plus a decoded mp3 (base64 read in Python) works end to end. Do not use force=True on draft-mic-N for lower items: the absolute footer covers them and the click hits send-to-kitchen-button (this happened once and sent an order, which was cleaned up).",
+  "rca_of_issue": "Verified that the old 2000 B threshold caused the 'zu kurz' rejections. Short real speech (0.9 s, 4–14 KB) now transcribes correctly. Remaining risk: on an emulator with the mic off the recording is silent. Under 300 B it now gets a clear error; at 300 B or more (e.g. 1.5 KB silent AAC) it gets a silent empty transcript with no UI hint."
+}
