@@ -3,11 +3,11 @@ import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from "react-native";
 import Animated, { FadeIn, FadeInDown, LinearTransition } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, euro, MENU_IMAGES, MenuItem, Order, STATUS_LABEL } from "@/src/api";
+import { api, euro, HOME, MENU_IMAGES, MenuItem, Order, STATUS_LABEL, TableInfo } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import Icon from "@/src/components/Icon";
 import PlayVoiceButton from "@/src/components/PlayVoiceButton";
@@ -20,7 +20,7 @@ type Draft = { key: string; menu_id: number; name: string; price: number; qty: n
 export default function TableOrder() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const table = Number(id);
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const router = useRouter();
   const qc = useQueryClient();
   const toast = useToast();
@@ -29,8 +29,23 @@ export default function TableOrder() {
   const styles = useStyles();
   const [draft, setDraft] = useState<Draft[]>([]);
   const [recordFor, setRecordFor] = useState<Draft | null>(null);
+  const [moveOpen, setMoveOpen] = useState(false);
 
-  const menuQ = useQuery({ queryKey: ["menu"], queryFn: () => api<MenuItem[]>("/menu") });
+  const menuQ = useQuery({ queryKey: ["menu"], queryFn: () => api<MenuItem[]>("/menu"), refetchInterval: 15000 });
+  const tablesQ = useQuery({ queryKey: ["tables"], queryFn: () => api<TableInfo[]>("/tables"), refetchInterval: 3000 });
+  const thisTable = tablesQ.data?.find((t) => t.table === table);
+
+  const move = useMutation({
+    mutationFn: (to: number) => api<{ to: number }>(`/tables/${table}/move`, { method: "POST", body: { to } }),
+    onSuccess: (r) => {
+      setMoveOpen(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      toast(`Bestellungen auf Tisch ${r.to} umgesetzt`, "success");
+      qc.invalidateQueries();
+      router.replace(`/waiter/table/${r.to}`);
+    },
+    onError: (e: any) => toast(e?.message ?? "Umsetzen fehlgeschlagen", "error"),
+  });
   const ordersQ = useQuery({
     queryKey: ["orders", table],
     queryFn: () => api<Order[]>(`/orders?table=${table}`),
@@ -71,8 +86,9 @@ export default function TableOrder() {
     onError: (e: any) => toast(e?.message ?? "Fehler", "error"),
   });
 
+  if (loading) return null;
   if (!user) return <Redirect href="/login" />;
-  if (user.role !== "waiter") return <Redirect href="/kitchen" />;
+  if (user.role !== "waiter") return <Redirect href={HOME[user.role]} />;
 
   const add = (m: MenuItem) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -98,6 +114,16 @@ export default function TableOrder() {
           Tisch {table}
         </Text>
         <View style={{ flex: 1 }} />
+        {thisTable && thisTable.status !== "free" && (
+          <Pressable
+            testID="table-move-button"
+            onPress={() => setMoveOpen(true)}
+            style={[styles.iconBtn, { backgroundColor: colors.surfaceTertiary }]}
+            accessibilityLabel="Tisch umsetzen"
+          >
+            <Icon name="swap-horizontal" size={22} color={colors.onSurface} />
+          </Pressable>
+        )}
         <Pressable testID="table-bill-button" onPress={() => router.push(`/waiter/bill/${table}`)} style={styles.billBtn}>
           <Icon name="receipt-text-outline" size={20} color={colors.onBrandSecondary} />
           <Text style={styles.billText}>Rechnung</Text>
@@ -107,9 +133,15 @@ export default function TableOrder() {
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 140 + insets.bottom }}>
         <Text style={styles.section}>Speisekarte</Text>
         {menuQ.isLoading && <ActivityIndicator color={colors.brandPrimary} />}
-        {menuQ.data?.map((m, i) => (
+        {menuQ.data?.filter((m) => m.available).map((m, i) => (
           <Animated.View key={m.id} entering={FadeInDown.delay(i * 60)} style={styles.menuRow}>
-            <Image source={{ uri: MENU_IMAGES[m.image] }} style={styles.thumb} contentFit="cover" transition={200} />
+            {m.image && MENU_IMAGES[m.image] ? (
+              <Image source={{ uri: MENU_IMAGES[m.image] }} style={styles.thumb} contentFit="cover" transition={200} />
+            ) : (
+              <View style={[styles.thumb, styles.thumbPlaceholder]}>
+                <Icon name="pizza" size={30} color={colors.onBrandTertiary} />
+              </View>
+            )}
             <View style={{ flex: 1 }}>
               <Text style={styles.menuName}>
                 <Text style={styles.menuNo}>{m.id}  </Text>
@@ -271,11 +303,65 @@ export default function TableOrder() {
           );
         }}
       />
+
+      <Modal visible={moveOpen} transparent animationType="fade" onRequestClose={() => setMoveOpen(false)}>
+        <View style={styles.scrim}>
+          <Pressable style={{ flex: 1 }} onPress={() => setMoveOpen(false)} testID="move-modal-backdrop" />
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]} testID="move-table-sheet">
+            <View style={styles.handle} />
+            <Text style={styles.sheetTitle}>Tisch {table} umsetzen</Text>
+            <Text style={styles.sheetSub}>Alle offenen Bestellungen und die Rechnung ziehen mit um.</Text>
+            <View style={styles.moveGrid}>
+              {tablesQ.data
+                ?.filter((t) => t.table !== table)
+                .map((t) => (
+                  <Pressable
+                    key={t.table}
+                    testID={`move-to-table-${t.table}`}
+                    disabled={move.isPending}
+                    onPress={() => move.mutate(t.table)}
+                    style={({ pressed }) => [styles.moveTile, t.status !== "free" && styles.moveTileBusy, pressed && { opacity: 0.7 }]}
+                  >
+                    <Text style={styles.moveNum}>{t.table}</Text>
+                    <Text style={styles.moveStatus}>{t.status === "free" ? "Frei" : "Zusammenlegen"}</Text>
+                  </Pressable>
+                ))}
+            </View>
+            {move.isPending && <ActivityIndicator color={colors.brandPrimary} style={{ marginTop: 12 }} />}
+            <Pressable testID="move-cancel-button" onPress={() => setMoveOpen(false)} style={styles.sheetCancel}>
+              <Text style={styles.sheetCancelText}>Abbrechen</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const useStyles = makeStyles((c) => ({
+  scrim: { flex: 1, backgroundColor: c.scrim },
+  sheet: { backgroundColor: c.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, paddingTop: 12 },
+  handle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: c.borderStrong, marginBottom: 16 },
+  sheetTitle: { fontSize: 22, fontWeight: "800", color: c.onSurface },
+  sheetSub: { fontSize: 14, color: c.muted, marginTop: 4, marginBottom: 16 },
+  moveGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  moveTile: {
+    width: "31%",
+    flexGrow: 1,
+    minHeight: 72,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: c.border,
+    backgroundColor: c.surfaceSecondary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  moveTileBusy: { borderColor: c.brandPrimary, backgroundColor: c.brandTertiary },
+  moveNum: { fontSize: 24, fontWeight: "800", color: c.onSurface },
+  moveStatus: { fontSize: 12, color: c.muted, fontWeight: "600" },
+  sheetCancel: { minHeight: 52, borderRadius: 12, backgroundColor: c.surfaceTertiary, alignItems: "center", justifyContent: "center", marginTop: 16 },
+  sheetCancelText: { color: c.onSurfaceTertiary, fontSize: 16, fontWeight: "700" },
+  thumbPlaceholder: { backgroundColor: c.brandTertiary, alignItems: "center", justifyContent: "center" },
   root: { flex: 1, backgroundColor: c.surface },
   header: {
     flexDirection: "row",

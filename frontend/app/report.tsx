@@ -10,13 +10,14 @@ import Icon from "@/src/components/Icon";
 import { makeStyles, useTheme } from "@/src/theme";
 
 export default function ReportScreen() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useStyles();
   const q = useQuery({ queryKey: ["report"], queryFn: () => api<Report>("/reports/today"), refetchInterval: 10000, enabled: !!user });
 
+  if (loading) return null;
   if (!user) return <Redirect href="/login" />;
 
   const r = q.data;
@@ -51,7 +52,7 @@ export default function ReportScreen() {
       ) : (
         <ScrollView
           contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 24 }}
-          refreshControl={<RefreshControl refreshing={q.isRefetching && !q.isLoading} onRefresh={q.refetch} />}
+          refreshControl={<RefreshControl refreshing={q.isRefetching && !q.isLoading} onRefresh={() => { q.refetch(); }} />}
         >
           <Animated.View entering={FadeInDown} style={styles.hero} testID="report-revenue-card">
             <Text style={styles.heroLabel}>Umsatz heute</Text>

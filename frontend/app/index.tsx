@@ -2,6 +2,7 @@ import { Redirect } from "expo-router";
 import { ActivityIndicator, View } from "react-native";
 
 import { useAuth } from "@/src/auth";
+import { HOME } from "@/src/api";
 import { useTheme } from "@/src/theme";
 
 export default function Index() {
@@ -15,5 +16,5 @@ export default function Index() {
     );
   }
   if (!user) return <Redirect href="/login" />;
-  return <Redirect href={user.role === "waiter" ? "/waiter" : "/kitchen"} />;
+  return <Redirect href={HOME[user.role]} />;
 }

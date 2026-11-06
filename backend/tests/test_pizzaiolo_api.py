@@ -70,7 +70,8 @@ class TestMenuTables:
         r = requests.get(f"{API}/menu", headers=H(waiter))
         assert r.status_code == 200
         m = r.json()
-        assert [(i["id"], i["name"], i["price"]) for i in m] == [
+        # menu is now owner-editable: only check the seeded items 1-3
+        assert [(i["id"], i["name"], i["price"]) for i in m if i["id"] <= 3] == [
             (1, "Pizza Margherita", 12.0), (2, "Pizza Funghi", 12.0), (3, "Pizza al Casa", 15.0)]
 
     def test_tables_waiter(self, waiter):

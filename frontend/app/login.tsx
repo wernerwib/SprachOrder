@@ -7,12 +7,12 @@ import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-nativ
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { HERO_IMAGE, Role } from "@/src/api";
+import { HERO_IMAGE, HOME, Role } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import Icon from "@/src/components/Icon";
 import { makeStyles, useTheme } from "@/src/theme";
 
-const DEFAULT_USER: Record<Role, string> = { waiter: "kellner1", kitchen: "kueche" };
+const DEFAULT_USER: Record<Role, string> = { waiter: "kellner1", kitchen: "kueche", owner: "inhaber" };
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -26,7 +26,7 @@ export default function Login() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  if (user) return <Redirect href={user.role === "waiter" ? "/waiter" : "/kitchen"} />;
+  if (user) return <Redirect href={HOME[user.role]} />;
 
   const pickRole = (r: Role) => {
     setRole(r);
@@ -41,7 +41,7 @@ export default function Login() {
     try {
       const u = await login(username.trim().toLowerCase(), password);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      router.replace(u.role === "waiter" ? "/waiter" : "/kitchen");
+      router.replace(HOME[u.role]);
     } catch (e: any) {
       setError(e?.message ?? "Anmeldung fehlgeschlagen");
     } finally {
@@ -83,8 +83,9 @@ export default function Login() {
           <Text style={styles.subtitle}>Wählen Sie Ihren Bereich und melden Sie sich an.</Text>
 
           <View style={styles.roleRow}>
-            <RoleCard r="waiter" icon="room-service-outline" label="Kellner" sub="Tische & Bestellungen" />
-            <RoleCard r="kitchen" icon="chef-hat" label="Küche" sub="Tickets & Sprachnotizen" />
+            <RoleCard r="waiter" icon="room-service-outline" label="Kellner" sub="Tische" />
+            <RoleCard r="kitchen" icon="chef-hat" label="Küche" sub="Tickets" />
+            <RoleCard r="owner" icon="store-cog-outline" label="Inhaber" sub="Speisekarte" />
           </View>
 
           <Text style={styles.label}>Benutzername</Text>
@@ -132,7 +133,7 @@ export default function Login() {
             )}
           </Pressable>
           <Text style={styles.demo} testID="login-demo-hint">
-            Demo: kellner1 / kellner2 · Kellner123!{"\n"}Küche: kueche · Kueche123!
+            Demo: kellner1 / kellner2 · Kellner123!{"\n"}Küche: kueche · Kueche123!{"\n"}Inhaber: inhaber · Inhaber123!
           </Text>
         </View>
       </KeyboardAwareScrollView>
@@ -159,10 +160,10 @@ const useStyles = makeStyles((c) => ({
   body: { paddingHorizontal: 24, marginTop: -24 },
   title: { fontSize: 32, fontWeight: "800", color: c.onSurface, letterSpacing: -0.5 },
   subtitle: { fontSize: 15, color: c.muted, marginTop: 4, marginBottom: 24 },
-  roleRow: { flexDirection: "row", gap: 12, marginBottom: 24 },
+  roleRow: { flexDirection: "row", gap: 8, marginBottom: 24 },
   roleCard: {
     flex: 1,
-    padding: 16,
+    padding: 12,
     borderRadius: 20,
     backgroundColor: c.surfaceSecondary,
     borderWidth: 1.5,
@@ -179,7 +180,7 @@ const useStyles = makeStyles((c) => ({
     justifyContent: "center",
     marginBottom: 6,
   },
-  roleLabel: { fontSize: 18, fontWeight: "800", color: c.onSurface },
+  roleLabel: { fontSize: 16, fontWeight: "800", color: c.onSurface },
   roleSub: { fontSize: 12, color: c.muted },
   label: { fontSize: 13, fontWeight: "700", color: c.onSurfaceTertiary, marginBottom: 6 },
   input: {

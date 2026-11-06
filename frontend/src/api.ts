@@ -6,9 +6,10 @@ export const setAuthToken = (t: string | null) => {
 };
 export const getAuthToken = () => authToken;
 
-export type Role = "waiter" | "kitchen";
+export type Role = "waiter" | "kitchen" | "owner";
+export const HOME = { waiter: "/waiter", kitchen: "/kitchen", owner: "/owner" } as const;
 export type User = { username: string; role: Role; display_name: string };
-export type MenuItem = { id: number; name: string; price: number; image: string };
+export type MenuItem = { id: number; name: string; price: number; image?: string | null; available: boolean };
 export type OrderStatus = "new" | "preparing" | "ready" | "served";
 export type OrderItem = {
   id: string;
@@ -38,8 +39,19 @@ export type TableInfo = {
 };
 export type Bill = {
   table: number;
-  lines: { menu_id: number; name: string; price: number; qty: number; amount: number }[];
+  lines: {
+    menu_id: number;
+    name: string;
+    price: number;
+    qty: number;
+    paid_qty: number;
+    open_qty: number;
+    amount: number;
+    open_amount: number;
+  }[];
   total: number;
+  paid_total: number;
+  open_total: number;
   orders: number;
   all_served: boolean;
 };

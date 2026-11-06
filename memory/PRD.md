@@ -16,6 +16,7 @@ Restaurants use apps where waiters send orders per table to the kitchen. The use
 - Status flow: new → preparing → ready (kitchen) → served (waiter)
 
 ## Implemented (June 2026)
+- Iteration 3: split bill by dish (partial payments, payments collection, per-table lock), move a table / merge tables, owner role "inhaber" with menu management (add, edit, hide dishes; menu stored in Mongo). Report: paid = payments today. Table tiles show the open amount.
 - Iteration 2: quantity per dish (stepper, lines merged), edit/type the note text in the modal, bill per table plus "Tisch abschließen" (paid flag, table status "Rechnung offen"), daily revenue report /report (revenue paid/open, per waiter, top pizza). 20/20 backend tests
 - Login, role-based routing, demo accounts (see test_credentials.md)
 - Orders per table, voice note per dish (record, transcribe, store), kitchen listens and reads
@@ -23,5 +24,5 @@ Restaurants use apps where waiters send orders per table to the kitchen. The use
 - Backend 15/15 tests passing; frontend flows tested
 
 ## Backlog
-- P1: Table transfer, split the bill
-- P2: Manage the menu in the app, delete voice notes, report for past days
+- P1: Revenue history for past days/weeks
+- P2: Upload photos for new dishes, delete voice notes, receipt as PDF/print

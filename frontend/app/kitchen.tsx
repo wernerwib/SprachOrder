@@ -6,7 +6,7 @@ import { ActivityIndicator, FlatList, Pressable, RefreshControl, ScrollView, Tex
 import Animated, { FadeInDown, LinearTransition } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, minutesSince, Order, OrderStatus } from "@/src/api";
+import { api, HOME, minutesSince, Order, OrderStatus } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import Icon from "@/src/components/Icon";
 import PlayVoiceButton from "@/src/components/PlayVoiceButton";
@@ -24,7 +24,7 @@ const NEXT: Record<string, { status: OrderStatus; label: string; icon: string } 
 };
 
 export default function Kitchen() {
-  const { user, logout } = useAuth();
+  const { user, logout, loading } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
@@ -67,8 +67,9 @@ export default function Kitchen() {
     return () => clearInterval(t);
   }, []);
 
+  if (loading) return null;
   if (!user) return <Redirect href="/login" />;
-  if (user.role !== "kitchen") return <Redirect href="/waiter" />;
+  if (user.role !== "kitchen") return <Redirect href={HOME[user.role]} />;
 
   const list = (q.data ?? []).filter((o) => o.status === tab);
 
@@ -135,7 +136,7 @@ export default function Kitchen() {
           data={list}
           keyExtractor={(o) => o.id}
           contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 24, flexGrow: 1 }}
-          refreshControl={<RefreshControl refreshing={q.isRefetching && !q.isLoading} onRefresh={q.refetch} />}
+          refreshControl={<RefreshControl refreshing={q.isRefetching && !q.isLoading} onRefresh={() => { q.refetch(); }} />}
           ListEmptyComponent={
             <View style={styles.empty} testID="kitchen-empty">
               <Icon name="silverware-clean" size={48} color={colors.borderStrong} />

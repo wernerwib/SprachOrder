@@ -4,7 +4,7 @@ import { ActivityIndicator, FlatList, Pressable, RefreshControl, Text, View } fr
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, euro, STATUS_LABEL, TableInfo } from "@/src/api";
+import { api, euro, HOME, STATUS_LABEL, TableInfo } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import Icon from "@/src/components/Icon";
 import { makeStyles, ThemeColors, useTheme } from "@/src/theme";
@@ -13,7 +13,7 @@ const statusColor = (c: ThemeColors, s: TableInfo["status"]) =>
   ({ free: c.muted, new: c.info, preparing: c.warning, ready: c.success, billing: c.brandPrimary })[s];
 
 export default function WaiterTables() {
-  const { user, logout } = useAuth();
+  const { user, logout, loading } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
@@ -25,8 +25,9 @@ export default function WaiterTables() {
     enabled: user?.role === "waiter",
   });
 
+  if (loading) return null;
   if (!user) return <Redirect href="/login" />;
-  if (user.role !== "waiter") return <Redirect href="/kitchen" />;
+  if (user.role !== "waiter") return <Redirect href={HOME[user.role]} />;
 
   const readyCount = q.data?.filter((t) => t.status === "ready").length ?? 0;
 
@@ -74,7 +75,7 @@ export default function WaiterTables() {
           numColumns={2}
           columnWrapperStyle={{ gap: 12 }}
           contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: insets.bottom + 24 }}
-          refreshControl={<RefreshControl refreshing={q.isRefetching && !q.isLoading} onRefresh={q.refetch} />}
+          refreshControl={<RefreshControl refreshing={q.isRefetching && !q.isLoading} onRefresh={() => { q.refetch(); }} />}
           renderItem={({ item, index }) => {
             const sc = statusColor(colors, item.status);
             return (

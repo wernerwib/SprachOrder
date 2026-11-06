@@ -47,12 +47,12 @@ MENU = [
     {"id": 2, "name": "Pizza Funghi", "price": 12.0, "image": "pizza_funghi"},
     {"id": 3, "name": "Pizza al Casa", "price": 15.0, "image": "pizza_al_casa"},
 ]
-MENU_BY_ID = {m["id"]: m for m in MENU}
 
 SEED_USERS = [
     ("kellner1", "Kellner123!", "waiter", "Kellner 1"),
     ("kellner2", "Kellner123!", "waiter", "Kellner 2"),
     ("kueche", "Kueche123!", "kitchen", "Küche"),
+    ("inhaber", "Inhaber123!", "owner", "Inhaber"),
 ]
 
 INDEXES: dict[str, list[IndexModel]] = {
@@ -65,6 +65,8 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel([("created_at", DESCENDING)], name="created_desc"),
     ],
     "voice_notes": [IndexModel([("id", ASCENDING)], name="id", unique=True)],
+    "menu": [IndexModel([("id", ASCENDING)], name="id", unique=True)],
+    "payments": [IndexModel([("created_at", DESCENDING)], name="created_desc")],
 }
 
 
@@ -97,8 +99,40 @@ class BaseDocument(BaseModel):
 class UserDoc(BaseDocument):
     username: str
     password_hash: str
-    role: Literal["waiter", "kitchen"]
+    role: Literal["waiter", "kitchen", "owner"]
     display_name: str
+
+
+class MenuItemDoc(BaseDocument):
+    id: int
+    name: str
+    price: float
+    image: Optional[str] = None
+    available: bool = True
+
+
+class MenuCreateIn(BaseModel):
+    name: Annotated[str, BeforeValidator(lambda v: v.strip() if isinstance(v, str) else v)] = Field(min_length=1, max_length=60)
+    price: float = Field(gt=0, le=999)
+
+
+class MenuUpdateIn(BaseModel):
+    name: Optional[Annotated[str, BeforeValidator(lambda v: v.strip() if isinstance(v, str) else v)]] = Field(None, min_length=1, max_length=60)
+    price: Optional[float] = Field(None, gt=0, le=999)
+    available: Optional[bool] = None
+
+
+class PayLine(BaseModel):
+    menu_id: int
+    qty: int = Field(ge=1, le=500)
+
+
+class PayIn(BaseModel):
+    lines: List[PayLine] = Field(min_length=1)
+
+
+class MoveIn(BaseModel):
+    to: int = Field(ge=1, le=TABLE_COUNT)
 
 
 class OrderItem(BaseModel):
@@ -107,6 +141,7 @@ class OrderItem(BaseModel):
     name: str
     price: float
     qty: int = 1
+    paid_qty: int = 0
     note_text: Optional[str] = None
     voice_note_id: Optional[str] = None
 
@@ -279,7 +314,31 @@ async def me(user: UserDoc = Depends(current_user)):
 
 @api.get("/menu")
 async def menu(_: UserDoc = Depends(current_user)):
-    return MENU
+    docs = await db.menu.find({}).sort("id", ASCENDING).to_list(500)
+    return [MenuItemDoc.from_mongo(d).to_mongo() for d in docs]
+
+
+@api.post("/menu")
+async def create_menu_item(body: MenuCreateIn, _: UserDoc = Depends(require_role("owner"))):
+    last = await db.menu.find_one({}, sort=[("id", DESCENDING)])
+    item = MenuItemDoc(id=(last["id"] + 1) if last else 1, name=body.name.strip(), price=round(body.price, 2))
+    await db.menu.insert_one(item.to_mongo())
+    return item.to_mongo()
+
+
+@api.patch("/menu/{item_id}")
+async def update_menu_item(item_id: int, body: MenuUpdateIn, _: UserDoc = Depends(require_role("owner"))):
+    changes = body.model_dump(exclude_none=True)
+    if "name" in changes:
+        changes["name"] = changes["name"].strip()
+    if "price" in changes:
+        changes["price"] = round(changes["price"], 2)
+    if not changes:
+        raise HTTPException(400, "Keine Änderungen")
+    res = await db.menu.update_one({"id": item_id}, {"$set": changes})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Gericht nicht gefunden")
+    return MenuItemDoc.from_mongo(await db.menu.find_one({"id": item_id})).to_mongo()
 
 
 @api.get("/tables")
@@ -298,7 +357,7 @@ async def tables(_: UserDoc = Depends(require_role("waiter"))):
             "table": t,
             "status": status,
             "open_orders": len([o for o in t_orders if o.status != "served"]),
-            "total": round(sum(o.total for o in t_orders), 2),
+            "total": round(sum(o.total - paid_amount(o) for o in t_orders), 2),
         })
     return result
 
@@ -307,43 +366,136 @@ def order_total(items: List[OrderItem]) -> float:
     return round(sum(i.price * i.qty for i in items), 2)
 
 
-@api.get("/tables/{table}/bill")
-async def table_bill(table: int, _: UserDoc = Depends(require_role("waiter"))):
+def paid_amount(o: OrderDoc) -> float:
+    if o.paid:
+        return o.total
+    return round(sum(i.price * i.paid_qty for i in o.items), 2)
+
+
+def check_table(table: int):
     if not 1 <= table <= TABLE_COUNT:
         raise HTTPException(404, "Tisch nicht gefunden")
+
+
+async def unpaid_orders(table: int) -> List[OrderDoc]:
     docs = await db.orders.find({"table": table, "paid": {"$ne": True}}).sort("created_at", ASCENDING).to_list(500)
-    orders = [OrderDoc.from_mongo(d) for d in docs]
+    return [OrderDoc.from_mongo(d) for d in docs]
+
+
+@api.get("/tables/{table}/bill")
+async def table_bill(table: int, _: UserDoc = Depends(require_role("waiter"))):
+    check_table(table)
+    orders = await unpaid_orders(table)
     lines: dict[int, dict] = {}
     for o in orders:
         for it in o.items:
-            line = lines.setdefault(it.menu_id, {"menu_id": it.menu_id, "name": it.name, "price": it.price, "qty": 0})
+            line = lines.setdefault(it.menu_id, {"menu_id": it.menu_id, "name": it.name, "price": it.price, "qty": 0, "paid_qty": 0})
             line["qty"] += it.qty
+            line["paid_qty"] += it.paid_qty
     out = sorted(lines.values(), key=lambda x: x["menu_id"])
     for line in out:
+        line["open_qty"] = line["qty"] - line["paid_qty"]
         line["amount"] = round(line["price"] * line["qty"], 2)
+        line["open_amount"] = round(line["price"] * line["open_qty"], 2)
+    total = round(sum(o.total for o in orders), 2)
+    paid = round(sum(paid_amount(o) for o in orders), 2)
     return {
         "table": table,
         "lines": out,
-        "total": round(sum(o.total for o in orders), 2),
+        "total": total,
+        "paid_total": paid,
+        "open_total": round(total - paid, 2),
         "orders": len(orders),
         "all_served": all(o.status == "served" for o in orders),
     }
 
 
-@api.post("/tables/{table}/close")
-async def close_table(table: int, _: UserDoc = Depends(require_role("waiter"))):
-    if not 1 <= table <= TABLE_COUNT:
-        raise HTTPException(404, "Tisch nicht gefunden")
-    docs = await db.orders.find({"table": table, "paid": {"$ne": True}}).to_list(500)
-    if not docs:
+TABLE_LOCKS: dict[int, asyncio.Lock] = {}
+
+
+async def settle(table: int, wanted: dict[int, int], user: UserDoc) -> dict:
+    """Mark `wanted` units (menu_id -> qty) as paid; serialised per table so units are never paid twice."""
+    lock = TABLE_LOCKS.setdefault(table, asyncio.Lock())
+    async with lock:
+        return await _settle(table, wanted, user)
+
+
+async def _settle(table: int, wanted: dict[int, int], user: UserDoc) -> dict:
+    orders = await unpaid_orders(table)
+    if not orders:
         raise HTTPException(400, "Keine offene Rechnung für diesen Tisch")
-    if any(d["status"] != "served" for d in docs):
+    if any(o.status != "served" for o in orders):
         raise HTTPException(400, "Noch nicht alle Gerichte serviert")
+    amount = 0.0
+    paid_lines = []
+    for menu_id, qty in wanted.items():
+        remaining = qty
+        for o in orders:
+            for it in o.items:
+                if it.menu_id != menu_id or remaining == 0:
+                    continue
+                take = min(remaining, it.qty - it.paid_qty)
+                if take > 0:
+                    it.paid_qty += take
+                    remaining -= take
+                    amount += it.price * take
+        if remaining > 0:
+            raise HTTPException(400, "Mehr ausgewählt als offen")
+        name = next((it.name for o in orders for it in o.items if it.menu_id == menu_id), "")
+        paid_lines.append({"menu_id": menu_id, "name": name, "qty": qty})
     now = datetime.now(timezone.utc).isoformat()
-    total = round(sum(d["total"] for d in docs), 2)
-    ids = [d["id"] for d in docs]
-    await db.orders.update_many({"id": {"$in": ids}, "status": "served"}, {"$set": {"paid": True, "paid_at": now}})
-    return {"table": table, "total": total, "orders": len(docs)}
+    for o in orders:
+        full = all(it.paid_qty >= it.qty for it in o.items)
+        update = {"items": [it.model_dump() for it in o.items], "updated_at": now}
+        if full:
+            update.update({"paid": True, "paid_at": now})
+        # status guard: only touch orders that are still served & unpaid
+        await db.orders.update_one({"id": o.id, "status": "served", "paid": {"$ne": True}}, {"$set": update})
+        o.paid = full
+    amount = round(amount, 2)
+    await db.payments.insert_one({
+        "id": str(uuid.uuid4()), "table": table, "amount": amount, "lines": paid_lines,
+        "waiter": user.username, "created_at": now,
+    })
+    return {"table": table, "amount": amount, "closed": all(o.paid for o in orders)}
+
+
+@api.post("/tables/{table}/pay")
+async def pay_part(table: int, body: PayIn, user: UserDoc = Depends(require_role("waiter"))):
+    check_table(table)
+    wanted: dict[int, int] = {}
+    for line in body.lines:
+        wanted[line.menu_id] = wanted.get(line.menu_id, 0) + line.qty
+    return await settle(table, wanted, user)
+
+
+@api.post("/tables/{table}/close")
+async def close_table(table: int, user: UserDoc = Depends(require_role("waiter"))):
+    check_table(table)
+    orders = await unpaid_orders(table)
+    if not orders:
+        raise HTTPException(400, "Keine offene Rechnung für diesen Tisch")
+    wanted: dict[int, int] = {}
+    for o in orders:
+        for it in o.items:
+            if it.qty > it.paid_qty:
+                wanted[it.menu_id] = wanted.get(it.menu_id, 0) + it.qty - it.paid_qty
+    res = await settle(table, wanted, user)
+    return {**res, "total": res["amount"], "orders": len(orders)}
+
+
+@api.post("/tables/{table}/move")
+async def move_table(table: int, body: MoveIn, _: UserDoc = Depends(require_role("waiter"))):
+    check_table(table)
+    if body.to == table:
+        raise HTTPException(400, "Bitte einen anderen Tisch wählen")
+    now = datetime.now(timezone.utc).isoformat()
+    res = await db.orders.update_many(
+        {"table": table, "paid": {"$ne": True}}, {"$set": {"table": body.to, "updated_at": now}}
+    )
+    if res.modified_count == 0:
+        raise HTTPException(400, "Keine offenen Bestellungen an diesem Tisch")
+    return {"from": table, "to": body.to, "moved": res.modified_count}
 
 
 LOCAL_TZ = ZoneInfo("Europe/Berlin")
@@ -370,13 +522,15 @@ async def report_today(_: UserDoc = Depends(current_user)):
     for d in dishes.values():
         d["revenue"] = round(d["revenue"], 2)
     top = sorted(dishes.values(), key=lambda d: (-d["qty"], d["menu_id"]))
-    paid = round(sum(o.total for o in orders if o.paid), 2)
+    payments = await db.payments.find({"created_at": {"$gte": start}}, {"_id": 0, "amount": 1}).to_list(10000)
+    paid = round(sum(p["amount"] for p in payments), 2)
     total = round(sum(o.total for o in orders), 2)
+    open_amount = round(sum(o.total - paid_amount(o) for o in orders), 2)
     return {
         "date": now_local.date().isoformat(),
         "revenue_total": total,
         "revenue_paid": paid,
-        "revenue_open": round(total - paid, 2),
+        "revenue_open": open_amount,
         "orders_count": len(orders),
         "items_count": sum(d["qty"] for d in dishes.values()),
         "by_waiter": sorted(by_waiter.values(), key=lambda w: -w["revenue"]),
@@ -402,13 +556,17 @@ async def list_orders(
 @api.post("/orders")
 async def create_order(body: OrderIn, user: UserDoc = Depends(require_role("waiter"))):
     items: List[OrderItem] = []
+    menu_docs = await db.menu.find({"id": {"$in": [it.menu_id for it in body.items]}}).to_list(100)
+    menu_by_id = {d["id"]: MenuItemDoc.from_mongo(d) for d in menu_docs}
     for it in body.items:
-        m = MENU_BY_ID.get(it.menu_id)
+        m = menu_by_id.get(it.menu_id)
         if not m:
             raise HTTPException(400, f"Unbekanntes Gericht {it.menu_id}")
+        if not m.available:
+            raise HTTPException(400, f"{m.name} ist derzeit nicht verfügbar")
         if it.voice_note_id and not await db.voice_notes.find_one({"id": it.voice_note_id}):
             raise HTTPException(400, "Sprachnotiz nicht gefunden")
-        items.append(OrderItem(menu_id=m["id"], name=m["name"], price=m["price"], qty=it.qty,
+        items.append(OrderItem(menu_id=m.id, name=m.name, price=m.price, qty=it.qty,
                                note_text=(it.note_text or "").strip() or None, voice_note_id=it.voice_note_id))
     order = OrderDoc(table=body.table, items=items, total=order_total(items),
                      waiter=user.username, waiter_name=user.display_name)
@@ -419,6 +577,7 @@ async def create_order(body: OrderIn, user: UserDoc = Depends(require_role("wait
 ALLOWED = {
     "kitchen": {"new": "preparing", "preparing": "ready"},
     "waiter": {"ready": "served"},
+    "owner": {},
 }
 
 
@@ -511,6 +670,8 @@ async def seed_users():
 async def startup():
     app.state.index_task = asyncio.create_task(ensure_indexes())
     await seed_users()
+    if await db.menu.count_documents({}) == 0:
+        await db.menu.insert_many([MenuItemDoc(**m).to_mongo() for m in MENU])
     # earlier served orders (before billing existed) count as paid
     await db.orders.update_many({"status": "served", "paid": {"$exists": False}}, {"$set": {"paid": True}})
     try:

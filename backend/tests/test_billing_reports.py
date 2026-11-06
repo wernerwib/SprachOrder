@@ -134,7 +134,9 @@ class TestReport:
             for k in ("date", "revenue_total", "revenue_paid", "revenue_open", "orders_count",
                       "items_count", "by_waiter", "top_dishes"):
                 assert k in d
-            assert round(d["revenue_paid"] + d["revenue_open"], 2) == d["revenue_total"]
+            # revenue_paid = payments made today; revenue_open = unpaid part of today's orders
+            assert d["revenue_open"] >= 0 and d["revenue_paid"] >= 0
+            assert d["revenue_open"] <= d["revenue_total"]
             qtys = [x["qty"] for x in d["top_dishes"]]
             assert qtys == sorted(qtys, reverse=True)
             assert sum(qtys) == d["items_count"]

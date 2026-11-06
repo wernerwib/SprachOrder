@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
+import { useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, Bill, euro } from "@/src/api";
+import { api, Bill, euro, HOME } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import Icon from "@/src/components/Icon";
 import { useToast } from "@/src/toast";
@@ -14,13 +15,15 @@ import { makeStyles, useTheme } from "@/src/theme";
 export default function TableBill() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const table = Number(id);
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const router = useRouter();
   const qc = useQueryClient();
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useStyles();
+  const [split, setSplit] = useState(false);
+  const [sel, setSel] = useState<Record<number, number>>({});
 
   const q = useQuery({
     queryKey: ["bill", table],
@@ -29,23 +32,54 @@ export default function TableBill() {
     enabled: user?.role === "waiter",
   });
 
+  const finish = (amount: number) => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    toast(`Tisch ${table} abgeschlossen · ${euro(amount)}`, "success");
+    qc.invalidateQueries();
+    router.dismissTo("/waiter");
+  };
+
   const close = useMutation({
     mutationFn: () => api<{ total: number }>(`/tables/${table}/close`, { method: "POST" }),
+    onSuccess: (r) => finish(r.total),
+    onError: (e: any) => toast(e?.message ?? "Fehler", "error"),
+  });
+
+  const pay = useMutation({
+    mutationFn: () =>
+      api<{ amount: number; closed: boolean }>(`/tables/${table}/pay`, {
+        method: "POST",
+        body: {
+          lines: Object.entries(sel)
+            .filter(([, n]) => n > 0)
+            .map(([menu_id, qty]) => ({ menu_id: Number(menu_id), qty })),
+        },
+      }),
     onSuccess: (r) => {
+      setSel({});
+      setSplit(false);
+      if (r.closed) {
+        finish(r.amount);
+        return;
+      }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      toast(`Tisch ${table} abgeschlossen · ${euro(r.total)}`, "success");
-      qc.invalidateQueries();
-      router.dismissTo("/waiter");
+      toast(`Teilzahlung ${euro(r.amount)} erhalten`, "success");
+      qc.invalidateQueries({ queryKey: ["bill", table] });
+      qc.invalidateQueries({ queryKey: ["report"] });
     },
     onError: (e: any) => toast(e?.message ?? "Fehler", "error"),
   });
 
+  if (loading) return null;
   if (!user) return <Redirect href="/login" />;
-  if (user.role !== "waiter") return <Redirect href="/kitchen" />;
+  if (user.role !== "waiter") return <Redirect href={HOME[user.role]} />;
 
   const bill = q.data;
   const empty = !bill || bill.lines.length === 0;
   const canClose = !!bill && !empty && bill.all_served;
+  const selTotal = bill ? bill.lines.reduce((s, l) => s + (sel[l.menu_id] ?? 0) * l.price, 0) : 0;
+  const setQty = (menuId: number, max: number, delta: number) =>
+    setSel((s) => ({ ...s, [menuId]: Math.max(0, Math.min(max, (s[menuId] ?? 0) + delta)) }));
 
   return (
     <View style={styles.root}>
@@ -87,9 +121,36 @@ export default function TableBill() {
                 <Text style={styles.lineQty}>{l.qty}×</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.lineName}>{l.name}</Text>
-                  <Text style={styles.lineUnit}>je {euro(l.price)}</Text>
+                  <Text style={styles.lineUnit}>
+                    je {euro(l.price)}
+                    {l.paid_qty > 0 ? ` · ${l.paid_qty} bezahlt` : ""}
+                  </Text>
                 </View>
-                <Text style={styles.lineAmount}>{euro(l.amount)}</Text>
+                {split && l.open_qty > 0 ? (
+                  <View style={styles.stepper}>
+                    <Pressable
+                      testID={`split-minus-${l.menu_id}`}
+                      onPress={() => setQty(l.menu_id, l.open_qty, -1)}
+                      style={styles.stepBtn}
+                      accessibilityLabel="Weniger"
+                    >
+                      <Icon name="minus" size={18} color={colors.onSurface} />
+                    </Pressable>
+                    <Text style={styles.stepQty} testID={`split-qty-${l.menu_id}`}>
+                      {sel[l.menu_id] ?? 0}/{l.open_qty}
+                    </Text>
+                    <Pressable
+                      testID={`split-plus-${l.menu_id}`}
+                      onPress={() => setQty(l.menu_id, l.open_qty, 1)}
+                      style={styles.stepBtn}
+                      accessibilityLabel="Mehr"
+                    >
+                      <Icon name="plus" size={18} color={colors.onSurface} />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Text style={[styles.lineAmount, l.open_qty === 0 && styles.paidAmount]}>{euro(l.amount)}</Text>
+                )}
               </View>
             ))}
             <View style={styles.dashed} />
@@ -99,6 +160,22 @@ export default function TableBill() {
                 {euro(bill.total)}
               </Text>
             </View>
+            {bill.paid_total > 0 && (
+              <>
+                <View style={styles.subRow}>
+                  <Text style={styles.subLabel}>Bereits bezahlt</Text>
+                  <Text style={styles.subLabel} testID="bill-paid-total">
+                    − {euro(bill.paid_total)}
+                  </Text>
+                </View>
+                <View style={styles.subRow}>
+                  <Text style={styles.openLabel}>Offen</Text>
+                  <Text style={styles.openLabel} testID="bill-open-total">
+                    {euro(bill.open_total)}
+                  </Text>
+                </View>
+              </>
+            )}
             <Text style={styles.vat}>inkl. MwSt.</Text>
           </Animated.View>
           {!bill.all_served && (
@@ -112,21 +189,71 @@ export default function TableBill() {
 
       {!empty && (
         <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
-          <Pressable
-            testID="bill-close-table-button"
-            disabled={!canClose || close.isPending}
-            onPress={() => close.mutate()}
-            style={({ pressed }) => [styles.primary, (!canClose || close.isPending) && { opacity: 0.45 }, pressed && { opacity: 0.85 }]}
-          >
-            {close.isPending ? (
-              <ActivityIndicator color={colors.onBrandPrimary} />
-            ) : (
-              <>
-                <Icon name="cash-check" size={22} color={colors.onBrandPrimary} />
-                <Text style={styles.primaryText}>Bezahlt · Tisch abschließen</Text>
-              </>
-            )}
-          </Pressable>
+          {split ? (
+            <View style={styles.footerRow}>
+              <Pressable
+                testID="split-cancel-button"
+                onPress={() => {
+                  setSplit(false);
+                  setSel({});
+                }}
+                style={styles.secondaryBtn}
+              >
+                <Text style={styles.secondaryBtnText}>Zurück</Text>
+              </Pressable>
+              <Pressable
+                testID="split-pay-button"
+                disabled={selTotal === 0 || pay.isPending || !canClose}
+                onPress={() => pay.mutate()}
+                style={({ pressed }) => [
+                  styles.primary,
+                  { flex: 1 },
+                  (selTotal === 0 || pay.isPending || !canClose) && { opacity: 0.45 },
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                {pay.isPending ? (
+                  <ActivityIndicator color={colors.onBrandPrimary} />
+                ) : (
+                  <Text style={styles.primaryText}>Auswahl bezahlen · {euro(selTotal)}</Text>
+                )}
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.footerRow}>
+              <Pressable
+                testID="bill-split-button"
+                disabled={!canClose}
+                onPress={() => setSplit(true)}
+                style={[styles.secondaryBtn, !canClose && { opacity: 0.45 }]}
+              >
+                <Icon name="call-split" size={20} color={colors.onSurfaceTertiary} />
+                <Text style={styles.secondaryBtnText}>Getrennt</Text>
+              </Pressable>
+              <Pressable
+                testID="bill-close-table-button"
+                disabled={!canClose || close.isPending}
+                onPress={() => close.mutate()}
+                style={({ pressed }) => [
+                  styles.primary,
+                  { flex: 1 },
+                  (!canClose || close.isPending) && { opacity: 0.45 },
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                {close.isPending ? (
+                  <ActivityIndicator color={colors.onBrandPrimary} />
+                ) : (
+                  <>
+                    <Icon name="cash-check" size={22} color={colors.onBrandPrimary} />
+                    <Text style={styles.primaryText}>
+                      {bill && bill.paid_total > 0 ? `Rest ${euro(bill.open_total)} kassieren` : "Bezahlt · abschließen"}
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+            </View>
+          )}
         </View>
       )}
     </View>
@@ -134,6 +261,25 @@ export default function TableBill() {
 }
 
 const useStyles = makeStyles((c) => ({
+  stepper: { flexDirection: "row", alignItems: "center", gap: 4 },
+  stepBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: c.surfaceTertiary, alignItems: "center", justifyContent: "center" },
+  stepQty: { minWidth: 40, textAlign: "center", fontSize: 15, fontWeight: "800", color: c.onSurface },
+  paidAmount: { color: c.muted, textDecorationLine: "line-through" },
+  subRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
+  subLabel: { fontSize: 15, color: c.muted, fontWeight: "600" },
+  openLabel: { fontSize: 18, color: c.brandPrimary, fontWeight: "800" },
+  footerRow: { flexDirection: "row", gap: 10 },
+  secondaryBtn: {
+    flexDirection: "row",
+    gap: 6,
+    minHeight: 56,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: c.surfaceTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secondaryBtnText: { color: c.onSurfaceTertiary, fontSize: 15, fontWeight: "700" },
   root: { flex: 1, backgroundColor: c.surfaceTertiary },
   header: {
     flexDirection: "row",

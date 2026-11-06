@@ -1,0 +1,54 @@
+{
+  "summary": "Iteration 3 covered owner menu management, split bill, moving orders to another table, and regression. Backend: 31 of 32 pytest tests pass, including the earlier suites. The failing test shows that a dish name made only of spaces is accepted. Frontend: all requested flows pass at the 390x844 mobile size. Covered flows: owner login to /owner, add a dish with a comma price, edit it, hide or show it, report, logout; table-move-button only on tables that are not free, the move sheet without the current table, move to a new table with a toast; split mode with steppers, partial payment, paid/open totals, 'Rest 24,00 € kassieren', and paying the rest returns to the tables (now free); kitchen ticket shows the new table number and the note; each role lands on its own home with no redirect loops. No deprecated Expo packages found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/menu, PATCH /api/menu/{id}", "issue": "A name made only of spaces (e.g. '   ') passes min_length=1, is stripped afterwards and saved as an empty name (returns 200 with name ''). Reproduced: created dish id 4 with an empty name. Fix: strip before validation (a Pydantic field_validator or constr(strip_whitespace=True)) or return 422 when the stripped name is empty."},
+      {"endpoint": "GET /api/tables", "issue": "After a partial payment, 'total' is still the full table total (tile shows 'Rechnung offen 36,00 €' while 24,00 € is open). It should show the open amount (total - paid)."},
+      {"endpoint": "POST /api/tables/{n}/pay|close (settle)", "issue": "Not atomic: it reads orders, changes paid_qty in memory, then calls update_one per order without a check on paid_qty. Two waiters paying the same table at the same time can both succeed and record two payments for the same units. Consider an optimistic lock (match on the current items/updated_at) or a per-table lock."},
+      {"endpoint": "GET /api/reports/today", "issue": "revenue_paid comes from orders created today, not from the payments collection. A bill opened before midnight and paid after it is counted on the wrong day. The payments collection is written but never read."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "waiter/table/[id].tsx, waiter/bill/[id].tsx", "issue": "Reloading the page or opening /waiter/table/4 directly sends the user to /waiter. The screen returns <Redirect href='/login'/> while useAuth().loading is still true, so the route is lost. Add `if (loading) return spinner` before the !user check (same pattern in owner.tsx).", "testID": "table-title", "priority": "low"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "waiter/bill", "issues": ["After a partial payment the screen stays in split mode with the selection cleared. 'Rest … kassieren' only appears after tapping 'Zurück'. This works for paying guest by guest, but consider showing the paid/open summary more clearly while in split mode."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_owner_split_move.py",
+    "/app/backend/tests/test_pizzaiolo_api.py",
+    "/app/backend/tests/test_billing_reports.py",
+    "/app/backend/tests/ui_setup_iter3.py",
+    "/app/backend/tests/ui_cleanup_iter3.py",
+    "/app/test_reports/pytest/pytest_iter3.xml"
+  ],
+  "action_items": [
+    "Reject dish names made only of spaces in MenuCreateIn/MenuUpdateIn (strip before the min_length check) -> 422",
+    "GET /api/tables: show the open amount (total minus partial payments) on table tiles",
+    "Make settle() safe when two waiters pay the same table at once (optimistic lock or per-table lock)",
+    "Optional: build revenue_paid in the report from the payments collection, by payment date",
+    "Optional: handle auth loading in waiter/table, waiter/bill and owner screens so reloads and deep links keep the route"
+  ],
+  "critical_code_review_comments": [
+    "settle() checks everything in memory before writing anything, so a 400 for 'more than open' leaves no partial changes (verified).",
+    "move_table update_many correctly skips paid orders. Moving onto an occupied table merges the bills (UI labels this 'Zusammenlegen'), which is good.",
+    "create_menu_item picks the next id with max(id)+1 and has no unique index. Two owners adding dishes at the same moment could get the same id."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_owner_split_move.py (new)",
+    "/app/backend/tests/test_pizzaiolo_api.py (test_menu now only checks seeded ids 1-3, since the menu can be edited)",
+    "/app/backend/tests/ui_setup_iter3.py (new helper)",
+    "/app/backend/tests/ui_cleanup_iter3.py (new helper)"
+  ],
+  "success_rate": {"backend": "97% (31/32; whitespace-name validation fails)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "Test dishes cannot be deleted, so they were left hidden: id 4 'TEST_whitespace' (was created with an empty name because of the bug, then renamed), id 5 'TEST_Dish_a7e57b', id 6 'TEST_UI_Calzone2'. All test tables were settled and are free. Table 3 ('new' order, about 2.5 h old) existed before testing and was not touched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "pytest.ini forces -n 2 --dist loadscope, so test classes run in parallel. test_owner_split_move picks free tables with offsets (Split 0/1, Menu 2, Move 4/5) and the old suite uses free[-1], so they never share a table. Skip test_create_whitespace_name_rejected and test_dish_lifecycle in repeat runs (-k) unless you want to retest, because each run creates a new dish that cannot be deleted. Expo web loses the route on page.goto reload, so navigate by tapping table-tile-{n}. Typed notes go through draft-mic-{i} -> voice-note-text-input -> voice-save-button.",
+  "rca_of_issue": "Whitespace dish name: MenuCreateIn.name = Field(min_length=1) checks the raw string; create_menu_item calls .strip() after validation, so '   ' becomes ''. Reproduce: POST /api/menu as owner with {\"name\":\"   \",\"price\":5} -> 200 {name:''}."
+}
