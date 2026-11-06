@@ -1,0 +1,24 @@
+{
+  "summary": "Retest of the iteration 6 fixes at 375x667 on the public preview URL, logged in as inhaber. All fixes are verified. HIGH: tapping history-chart-touch at 3%, 50% and 97% of the width works for 7d, 30d and 12w. Each tap set history-total and its label to the tapped bucket (e.g. 'Sa 31.10.', 'Fr 06.11. 2800,00 EUR', 'KW 34', 'KW 45'). Tapping the same spot again went back to 'Summe 2800,00 EUR'. There were no page errors, no error overlay and no error elements. MEDIUM: 7d shows all 7 weekdays; 30d shows every 5th day (8.,13.,18.,23.,28.,2.,6.); 12w shows every 2nd week (KW34..KW44). The labels' bounding boxes don't overlap, none are truncated, and all stay inside the 375px viewport. Minor: staff-sheet-error 'Benutzername ist schon vergeben' appears for duplicate 'kellner1' and disappears after the username is edited. No account was created. Regression: the owner menu (4 items) and the report screen (revenue, orders and per-waiter cards) load correctly.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "report / HistoryCard 12w", "issues": ["LOW: The newest week (index 11, KW45), which is also the best/highlighted bar, has no axis label. With showEvery=2 the last-bucket exception (i % showEvery >= 3) never triggers for 12w. Optional: always label the last bucket in 12w (HistoryCard.tsx:115)."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [],
+  "action_items": ["OPTIONAL/LOW: Show the axis label for the latest week in 12w mode (HistoryCard.tsx:115)."],
+  "critical_code_review_comments": [
+    "HistoryCard onPress: the locationX ?? offsetX fallback plus the finite and undefined-bucket guards are correct. Because the bars use gap:3, the x/chartW mapping is slightly approximate near bar edges. This is acceptable.",
+    "staff.tsx: sheetError is cleared only when the username changes, not when the display name or password change. This is fine for the duplicate-username case."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (not requested)", "frontend": "100%"},
+  "seed_data_creation": "None. The duplicate-username create was rejected with 409 and no TEST_ account was created.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Use the public URL from frontend/.env EXPO_PUBLIC_BACKEND_URL. Chart test: click history-chart-touch with position x = width*frac. The label is history-total.previousElementSibling. The axis labels are children of history-chart.nextElementSibling. Staff test: create with username 'kellner1' to trigger staff-sheet-error."
+}

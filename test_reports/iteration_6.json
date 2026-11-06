@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 6 frontend re-check of the iteration 5 fixes at 375x667 via Playwright. PASS: Fix 1 (bill-print-button and bill-share-button each create a hidden iframe with receipt HTML containing 'Pizzaiolo', 'Tisch 10', the lines and 'Gesamt'; iframe.contentWindow.print is called and the main window.print is not; the iframe is removed afterwards; no toast, no page errors). PASS: Fix 3 ('Rechnung' kicker plus bill-title 'Tisch 10', not truncated, scrollWidth == clientWidth; print and share buttons 44x44 and visible). PASS: Fix 4 ('Stärkster Tag' for 7d/30d, 'Stärkste Woche: KW 45' for 12w). PASS: Fix 5 (duplicate 'kellner1' shows staff-sheet-error 'Benutzername ist schon vergeben' inside the sheet and topmost by elementFromPoint). PASS: Fix 6 (test_ waiter logged in in a second context; after the owner deleted it, the app went to /login in about 3s without a reload and the token was removed). PASS regression: login for kellner1, kellner2, kueche and inhaber; create kitchen account, reset password (old password rejected, new one works), delete. FAIL: Fix 2. The 30d axis labels are now readable ('8. 13. 18. 23. 28. 2. 6.'), but tapping history-chart-touch on web throws an Uncaught TypeError and crashes the app, so per-day selection cannot work on web. The 12w axis labels also now overlap ('KW34KW35KW36...'). No deprecated Expo packages found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "HistoryCard chart touch area (web)", "issue": "CRASH: tapping or clicking history-chart-touch throws 'Cannot read properties of undefined (reading key)' (Expo error overlay, the app becomes unusable). RCA: on react-native-web, Pressable.onPress receives the DOM click event (node_modules/react-native-web/dist/modules/usePressEvents/PressResponder.js:302-314 onClick), so e.nativeEvent is a MouseEvent and has no locationX. locationX is undefined -> idx = NaN -> h.buckets[NaN].key throws. Reference: /app/frontend/src/components/HistoryCard.tsx:101-105. Fix: const ne:any = e.nativeEvent; const x = ne.locationX ?? ne.offsetX; if (!chartW || !Number.isFinite(x)) return; and guard 'const b = h.buckets[idx]; if (!b) return;'. offsetX is relative to the Pressable because it has no children. Native should work, since it provides locationX.", "testID": "history-chart-touch", "priority": "HIGH"},
+      {"component": "HistoryCard 12w axis labels", "issue": "With showEvery = 1 for 12w, the 12 absolutely positioned 40px labels ('KW34'...'KW45') sit about 26px apart at 375px and run together into 'KW34KW35KW36…', which is unreadable. Reference: /app/frontend/src/components/HistoryCard.tsx:30,111-123. Fix: showEvery = 2 for 12w (or 3), or show only the week number '34'.", "testID": "history-chart", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Staff sheet", "issues": ["staff-sheet-error stays visible after the user edits the username. Consider clearing the error on input change (minor)."]},
+      {"screen": "Report 30d axis", "issues": ["The last two labels '2.' and '6.' have adjacent 40px boxes (about 4 days apart, because the last label is always forced). They are readable but tight; consider skipping the forced last label when it is fewer than 3 slots from the previous one."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [".screenshots/bill_header.jpg", ".screenshots/hist30.jpg", ".screenshots/hist12w.jpg", ".screenshots/staff_dup.jpg"],
+  "action_items": [
+    "HIGH: Fix the web crash in HistoryCard history-chart-touch onPress. Use nativeEvent.locationX ?? nativeEvent.offsetX and guard against NaN or an undefined bucket (HistoryCard.tsx:101-105).",
+    "MEDIUM: Thin out the 12w axis labels (showEvery 2 for 12w, or drop the 'KW' prefix) so they don't overlap at 375px.",
+    "LOW: Clear staff-sheet-error when the inputs change."
+  ],
+  "critical_code_review_comments": [
+    "HistoryCard onPress reads e.nativeEvent.locationX with no fallback or NaN guard. Index-based array access then has no bounds or undefined check, so any bad coordinate is a hard crash rather than a no-op.",
+    "receipt.ts printHtmlWeb: if the iframe's onload never fires (readyState is not 'complete' and there is no load event after document.write), the frame is never removed. This is minor; it worked in Chromium (readyState complete path)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend-only request)", "frontend": "86% (6/7 items pass; Fix 2 fails: tap crash on web, 12w labels overlap)"},
+  "seed_data_creation": "A temporary order on table 10 (2x Margherita, 1x Funghi, note TEST_iter6) was created via the API, then served and closed. This added 36 € to today's revenue. Accounts test_w78302 and test_k78327 were created and deleted. Table 3 (old 27 € order) was left untouched. The seeded accounts were not changed.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Bill test: create an order on table 10 via POST /api/orders as kellner1. Stub iframe print by patching Node.prototype.appendChild so the IFRAME's contentWindow.print is replaced. Fix 6 works with a second context via page.context.browser.new_context(). To close a table, all orders must be 'served': the kitchen can set preparing/ready, and the waiter sets served. After the chart fix, retest by tapping history-chart-touch at x=3%/50%/97% for 7d/30d/12w: history-total should change to the day's value and its label (previousElementSibling of history-total) to that day's label.",
+  "rca_of_issue": "Chart crash: react-native-web PressResponder calls onPress(event) from the onClick handler with a React MouseEvent, and MouseEvent has no locationX. Math.floor(undefined / w * n) = NaN; Math.max(0, NaN) = NaN; buckets[NaN] = undefined; .key throws a TypeError and the Expo error overlay appears. Repro: log in as inhaber, open Tagesumsatz, tap anywhere on the chart. Mitigation: fall back to offsetX and guard against NaN."
+}

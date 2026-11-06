@@ -20,7 +20,9 @@
         "backgroundColor": "#000000"
       },
       "package": "com.emergent.sprachorder.tm61q1",
-      "permissions": ["android.permission.RECORD_AUDIO"]
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -49,7 +51,8 @@
           "microphonePermission": "Ergänzungen zu Gerichten für die Küche aufsprechen"
         }
       ],
-      "@react-native-vector-icons/material-design-icons"
+      "@react-native-vector-icons/material-design-icons",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true

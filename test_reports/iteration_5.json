@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 5 tested Personal verwalten, Umsatz-Verlauf and Bon teilen, plus regression, at 375x667. Backend: 13 new tests in test_staff_history.py and the full suite of 54 tests all pass. A restart check also passed: a test_ account whose password was changed came back with the new password, and the seeded accounts kept theirs. Frontend: these flows work: owner -> Personal, creating an account (save button disabled until the input is valid, duplicate name shows an error toast), the new kitchen account logging in, password reset (old password rejected, new one works), delete with confirmation, and a deleted account's session being sent to /login on reload. The history card works with all 3 range chips; tapping a bar updates history-total, and weekday averages show only for 30d/12w. The kitchen report has no history card. Bill print/share show no crash and no error toast. Order -> kitchen -> served -> split pay -> close works. Problems found: on web the printed receipt is the app screen rather than the receipt HTML (expo-print web ignores the html); the 30-day x-axis labels are cut off; the bill title is truncated; small grammar and touch-target issues. No deprecated Expo packages found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "DELETE /api/staff/{username}", "issue": "Works (token -> 401). Note: the delete sheet text says 'wird sofort abgemeldet', but the frontend only checks /auth/me at startup and src/api.ts has no global 401 -> logout handling. A deleted user with the app open stays on screen, gets failing API calls, and is only logged out after a reload."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Bon drucken/teilen on web", "issue": "expo-print web (node_modules/expo-print/build/ExponentPrint.web.js) only calls window.print() and IGNORES the html option. On web the browser prints the current app screen (header buttons, only the visible scroll area), not the receiptHtml() receipt. Fix: when Platform.OS === 'web', write receiptHtml(bill) into a hidden iframe (or window.open) and call iframe.contentWindow.print(). Reference: /app/frontend/src/receipt.ts:63-67,80", "testID": "bill-print-button / bill-share-button", "priority": "MEDIUM"},
+      {"component": "HistoryCard 30d x-axis labels", "issue": "With 30 bars each column is ~7px wide and numberOfLines={1}, so the labels '13.', '23.', '28.' show as '1', '2', '2'. The axis reads '8 1 1 2 2 2 6', which is misleading. Fix: render the labels in a separate absolutely positioned row, or allow overflow / use a wider label container. Reference: /app/frontend/src/components/HistoryCard.tsx:97-99", "testID": "history-chart", "priority": "MEDIUM"},
+      {"component": "Bill header title", "issue": "Now that the print and share buttons are in the header, the title 'Rechnung · Tisch 10' is truncated to 'Rechnung · Tisch…' at 375px, so the table number is hidden. Fix: shorten to 'Tisch 10' or move the buttons. Reference: /app/frontend/app/waiter/bill/[id].tsx:91-93", "testID": "bill-print-button", "priority": "MEDIUM"},
+      {"component": "HistoryCard best text", "issue": "German grammar: 'Stärkster Woche' should be 'Stärkste Woche' (Woche is feminine). Also, kpiSub says 'Pizzas' for all items. Reference: /app/frontend/src/components/HistoryCard.tsx:64,106", "testID": "history-best", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Report / HistoryCard", "issues": ["30d bars (history-bar-i) are ~7.4px wide and 12w bars ~23px wide, well below the 44px touch target. Hard to tap one day; consider a pan/scrub gesture or a wider hit area."]},
+      {"screen": "Staff sheet", "issues": ["The error toast (e.g. 'Benutzername ist schon vergeben') renders BEHIND the modal scrim, so it looks dimmed on web; on native a toast below a Modal may not be visible at all. Show the error inline in the sheet."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_staff_history.py", "/app/backend/tests/restart_check.py", "/app/test_reports/pytest/pytest_iter5_all.xml"],
+  "action_items": [
+    "receipt.ts: on web, print the receipt HTML through a hidden iframe instead of Print.printAsync({html}) (expo-print web ignores html and prints the app page)",
+    "HistoryCard: fix the 30d x-axis labels being cut off ('13.' shows as '1') and enlarge the bar touch targets",
+    "Bill header: keep the table number visible (title is truncated by the print/share buttons)",
+    "Grammar: 'Stärkste Woche' for 12w",
+    "Optional: global 401 handling in src/api.ts -> logout, so deleted staff are really 'sofort abgemeldet'",
+    "Optional: show staff sheet errors inline (the toast is hidden behind the modal scrim)"
+  ],
+  "critical_code_review_comments": [
+    "Native: Print.printAsync throws 'Another print request is already in progress' on a quick double tap. That is caught and shows 'Drucken nicht möglich'; consider debouncing the buttons.",
+    "Unique username index is created by a background task (ensure_indexes). Duplicates are only rejected once the index exists (it exists now). Fine in practice.",
+    "/reports/today: revenue_paid (1838.5) + revenue_open (27) != revenue_total (2513.5). Probably legacy orders marked paid during migration without paid_qty; existed before this change and was not investigated further.",
+    "server.py is 822 lines (>700). Consider splitting the routers (staff, reports, orders)."
+  ],
+  "updated_files": ["/app/backend/tests/test_staff_history.py", "/app/backend/tests/restart_check.py"],
+  "success_rate": {"backend": "100% (54/54 incl. 13 new)", "frontend": "~88% (all flows functional; web print content, 30d labels and bill title issues)"},
+  "seed_data_creation": "Created and then deleted test_w*, test_k*, test_restart5, test_uikoch5, test_uidel5 (only the 4 seeded users remain). Created one order on table 10 (36,00 €, 1 Margherita split-paid, then closed); it stays in revenue history as a paid order. Table 3 (27 €) was already open and was not touched.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Credentials: /app/memory/test_credentials.md. Backend tests use the env var EXPO_PUBLIC_BACKEND_URL (frontend/.env). pytest.ini adds xdist -n, so do not pass -p no:xdist. Run restart_check.py with before -> restart backend -> after. On web, window.print is a no-op in headless mode; stub it via page.evaluate after load (add_init_script does not apply to the SPA once it has loaded).",
+  "rca_of_issue": "Web receipt printing: expo-print 58 web implementation = { print() { window.print() } }, so receiptHtml is never rendered on web."
+}

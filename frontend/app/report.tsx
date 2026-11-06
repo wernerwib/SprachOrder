@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, euro, Report } from "@/src/api";
 import { useAuth } from "@/src/auth";
+import HistoryCard from "@/src/components/HistoryCard";
 import Icon from "@/src/components/Icon";
 import { makeStyles, useTheme } from "@/src/theme";
 
@@ -138,6 +139,7 @@ export default function ReportScreen() {
               </View>
             ))}
           </Animated.View>
+          {user.role === "owner" && <HistoryCard />}
         </ScrollView>
       )}
     </View>

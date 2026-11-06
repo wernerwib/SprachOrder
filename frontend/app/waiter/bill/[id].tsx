@@ -10,6 +10,7 @@ import { api, Bill, euro, HOME } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import Icon from "@/src/components/Icon";
 import { useToast } from "@/src/toast";
+import { printReceipt, shareReceipt } from "@/src/receipt";
 import { makeStyles, useTheme } from "@/src/theme";
 
 export default function TableBill() {
@@ -87,7 +88,32 @@ export default function TableBill() {
         <Pressable testID="bill-back-button" onPress={() => router.back()} style={styles.iconBtn} accessibilityLabel="Zurück">
           <Icon name="arrow-left" size={24} color={colors.onSurface} />
         </Pressable>
-        <Text style={styles.title}>Rechnung · Tisch {table}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.kicker}>Rechnung</Text>
+          <Text style={styles.title} numberOfLines={1} testID="bill-title">
+            Tisch {table}
+          </Text>
+        </View>
+        {!empty && bill && (
+          <>
+            <Pressable
+              testID="bill-print-button"
+              onPress={() => printReceipt(bill).catch(() => toast("Drucken nicht möglich", "error"))}
+              style={[styles.iconBtn, styles.headBtn]}
+              accessibilityLabel="Bon drucken"
+            >
+              <Icon name="printer-outline" size={22} color={colors.onSurface} />
+            </Pressable>
+            <Pressable
+              testID="bill-share-button"
+              onPress={() => shareReceipt(bill).catch(() => toast("Bon konnte nicht erstellt werden", "error"))}
+              style={[styles.iconBtn, styles.headBtn]}
+              accessibilityLabel="Bon als PDF teilen"
+            >
+              <Icon name="share-variant-outline" size={22} color={colors.onSurface} />
+            </Pressable>
+          </>
+        )}
       </View>
 
       {q.isLoading ? (
@@ -293,6 +319,8 @@ const useStyles = makeStyles((c) => ({
   },
   iconBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   title: { fontSize: 22, fontWeight: "800", color: c.onSurface },
+  kicker: { fontSize: 12, fontWeight: "700", color: c.brandPrimary, textTransform: "uppercase", letterSpacing: 1 },
+  headBtn: { backgroundColor: c.surfaceTertiary, marginLeft: 4 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 32 },
   emptyText: { color: c.muted, fontSize: 16, textAlign: "center" },
   receipt: { backgroundColor: c.surfaceSecondary, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: c.border },

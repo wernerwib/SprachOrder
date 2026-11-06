@@ -79,6 +79,14 @@ export default function OwnerMenu() {
           <Text style={styles.title}>Speisekarte</Text>
         </View>
         <Pressable
+          testID="owner-staff-button"
+          onPress={() => router.push("/staff")}
+          style={[styles.iconBtn, { marginRight: 8 }]}
+          accessibilityLabel="Personal verwalten"
+        >
+          <Icon name="account-group-outline" size={22} color={colors.onSurfaceTertiary} />
+        </Pressable>
+        <Pressable
           testID="owner-report-button"
           onPress={() => router.push("/report")}
           style={[styles.iconBtn, { marginRight: 8 }]}

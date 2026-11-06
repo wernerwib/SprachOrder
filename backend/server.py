@@ -20,6 +20,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, BeforeValidator, Field
 from pymongo import ASCENDING, DESCENDING, IndexModel
+from pymongo.errors import DuplicateKeyError
 from starlette.middleware.cors import CORSMiddleware
 
 ROOT_DIR = Path(__file__).parent
@@ -133,6 +134,31 @@ class PayIn(BaseModel):
 
 class MoveIn(BaseModel):
     to: int = Field(ge=1, le=TABLE_COUNT)
+
+
+def _pw_ok(v: str) -> str:
+    v = v.strip()
+    if len(v) < 8:
+        raise ValueError("Passwort muss mindestens 8 Zeichen haben")
+    if len(v.encode()) > 72:
+        raise ValueError("Passwort ist zu lang")
+    return v
+
+
+StaffPassword = Annotated[str, BeforeValidator(lambda v: _pw_ok(v) if isinstance(v, str) else v)]
+
+
+class StaffCreateIn(BaseModel):
+    username: Annotated[str, BeforeValidator(lambda v: v.strip().lower() if isinstance(v, str) else v)] = Field(
+        pattern=r"^[a-z0-9_.-]{3,32}$"
+    )
+    display_name: Annotated[str, BeforeValidator(lambda v: v.strip() if isinstance(v, str) else v)] = Field(min_length=1, max_length=40)
+    role: Literal["waiter", "kitchen"]
+    password: StaffPassword
+
+
+class StaffPasswordIn(BaseModel):
+    password: StaffPassword
 
 
 class OrderItem(BaseModel):
@@ -339,6 +365,42 @@ async def update_menu_item(item_id: int, body: MenuUpdateIn, _: UserDoc = Depend
     if res.matched_count == 0:
         raise HTTPException(404, "Gericht nicht gefunden")
     return MenuItemDoc.from_mongo(await db.menu.find_one({"id": item_id})).to_mongo()
+
+
+@api.get("/staff")
+async def list_staff(_: UserDoc = Depends(require_role("owner"))):
+    docs = await db.users.find({"role": {"$in": ["waiter", "kitchen"]}}).sort([("role", ASCENDING), ("username", ASCENDING)]).to_list(500)
+    return [public_user(UserDoc.from_mongo(d)) for d in docs]
+
+
+@api.post("/staff", status_code=201)
+async def create_staff(body: StaffCreateIn, _: UserDoc = Depends(require_role("owner"))):
+    hashed = await run_in_threadpool(lambda: bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode())
+    user = UserDoc(username=body.username, password_hash=hashed, role=body.role, display_name=body.display_name)
+    try:
+        await db.users.insert_one(user.to_mongo())
+    except DuplicateKeyError:
+        raise HTTPException(409, "Benutzername ist schon vergeben")
+    return public_user(user)
+
+
+@api.patch("/staff/{username}/password")
+async def reset_staff_password(username: str, body: StaffPasswordIn, _: UserDoc = Depends(require_role("owner"))):
+    hashed = await run_in_threadpool(lambda: bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode())
+    res = await db.users.update_one(
+        {"username": username.lower(), "role": {"$in": ["waiter", "kitchen"]}}, {"$set": {"password_hash": hashed}}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Konto nicht gefunden")
+    return {"ok": True}
+
+
+@api.delete("/staff/{username}")
+async def delete_staff(username: str, _: UserDoc = Depends(require_role("owner"))):
+    res = await db.users.delete_one({"username": username.lower(), "role": {"$in": ["waiter", "kitchen"]}})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Konto nicht gefunden")
+    return {"ok": True}
 
 
 @api.get("/tables")
@@ -645,6 +707,69 @@ async def voice_audio(note_id: str, token: Optional[str] = None,
     return Response(content=data, media_type=note.content_type, headers={"Cache-Control": "private, max-age=86400"})
 
 
+WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+
+
+@api.get("/reports/history")
+async def report_history(
+    period: Literal["7d", "30d", "12w"] = Query("7d", alias="range"),
+    _: UserDoc = Depends(require_role("owner")),
+):
+    today = datetime.now(LOCAL_TZ).date()
+    if period == "12w":
+        monday = today - timedelta(days=today.weekday())
+        keys = [monday - timedelta(weeks=i) for i in reversed(range(12))]
+    else:
+        n = 7 if period == "7d" else 30
+        keys = [today - timedelta(days=i) for i in reversed(range(n))]
+    start_local = datetime.combine(keys[0], datetime.min.time(), tzinfo=LOCAL_TZ)
+    docs = await db.orders.find(
+        {"created_at": {"$gte": start_local.astimezone(timezone.utc).isoformat()}}
+    ).to_list(50000)
+    buckets = {k: {"key": k.isoformat(), "revenue": 0.0, "orders": 0, "items": 0} for k in keys}
+    weekday = [{"weekday": WEEKDAYS[i], "revenue": 0.0, "days": 0} for i in range(7)]
+    per_day: dict = {}
+    for d in docs:
+        o = OrderDoc.from_mongo(d)
+        local_day = datetime.fromisoformat(o.created_at).astimezone(LOCAL_TZ).date()
+        key = local_day - timedelta(days=local_day.weekday()) if period == "12w" else local_day
+        b = buckets.get(key)
+        if b is None:
+            continue
+        b["revenue"] += o.total
+        b["orders"] += 1
+        b["items"] += sum(i.qty for i in o.items)
+        per_day[local_day] = per_day.get(local_day, 0.0) + o.total
+    # weekday averages over every calendar day in the range (quiet days count as 0)
+    day = start_local.date()
+    while day <= today:
+        w = weekday[day.weekday()]
+        w["revenue"] += per_day.get(day, 0.0)
+        w["days"] += 1
+        day += timedelta(days=1)
+    out = []
+    for k in keys:
+        b = buckets[k]
+        b["revenue"] = round(b["revenue"], 2)
+        b["label"] = f"KW {k.isocalendar()[1]}" if period == "12w" else f"{WEEKDAYS[k.weekday()]} {k.day:02d}.{k.month:02d}."
+        b["short"] = f"KW{k.isocalendar()[1]}" if period == "12w" else (WEEKDAYS[k.weekday()] if period == "7d" else f"{k.day}.")
+        out.append(b)
+    total = round(sum(b["revenue"] for b in out), 2)
+    best = max(out, key=lambda b: b["revenue"]) if out else None
+    return {
+        "range": period,
+        "buckets": out,
+        "total": total,
+        "orders": sum(b["orders"] for b in out),
+        "average": round(total / len(out), 2) if out else 0,
+        "best": best if best and best["revenue"] > 0 else None,
+        "weekday_avg": [
+            {"weekday": w["weekday"], "revenue": round(w["revenue"] / w["days"], 2) if w["days"] else 0.0}
+            for w in weekday
+        ],
+    }
+
+
 app.include_router(api)
 
 app.add_middleware(
@@ -657,13 +782,21 @@ app.add_middleware(
 
 
 async def seed_users():
+    """One-time seeding: once done, owner deletions/password changes are never undone on restart."""
+    if await db.meta.find_one({"_id": "seed_users_v1"}):
+        if not await db.users.find_one({"role": "owner"}):
+            # safety net: the app must always have an owner account
+            username, pw, role, name = SEED_USERS[-1]
+            hashed = bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
+            await db.users.insert_one(UserDoc(username=username, password_hash=hashed, role=role, display_name=name).to_mongo())
+        return
     for username, pw, role, name in SEED_USERS:
-        existing = await db.users.find_one({"username": username})
-        if existing and bcrypt.checkpw(pw.encode(), existing["password_hash"].encode()):
+        if await db.users.find_one({"username": username}):
             continue
         hashed = bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
         user = UserDoc(username=username, password_hash=hashed, role=role, display_name=name)
-        await db.users.update_one({"username": username}, {"$set": user.to_mongo()}, upsert=True)
+        await db.users.insert_one(user.to_mongo())
+    await db.meta.update_one({"_id": "seed_users_v1"}, {"$set": {"done_at": datetime.now(timezone.utc).isoformat()}}, upsert=True)
 
 
 @app.on_event("startup")

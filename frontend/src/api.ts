@@ -1,6 +1,10 @@
 export const API_URL = `${process.env.EXPO_PUBLIC_BACKEND_URL}/api`;
 
 let authToken: string | null = null;
+let onUnauthorized: (() => void) | null = null;
+export const setUnauthorizedHandler = (fn: (() => void) | null) => {
+  onUnauthorized = fn;
+};
 export const setAuthToken = (t: string | null) => {
   authToken = t;
 };
@@ -76,6 +80,8 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   if (!res.ok) {
+    // account deleted or session expired -> back to login
+    if (res.status === 401 && authToken && path !== "/auth/login") onUnauthorized?.();
     let msg = `Fehler ${res.status}`;
     try {
       const j = await res.json();
@@ -114,3 +120,19 @@ export const STATUS_LABEL: Record<string, string> = {
 };
 
 export const minutesSince = (iso: string) => Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+
+export type Staff = User;
+export type HistoryBucket = { key: string; label: string; short: string; revenue: number; orders: number; items: number };
+export type History = {
+  range: "7d" | "30d" | "12w";
+  buckets: HistoryBucket[];
+  total: number;
+  orders: number;
+  average: number;
+  best: HistoryBucket | null;
+  weekday_avg: { weekday: string; revenue: number }[];
+};
+
+export async function apiDelete(path: string) {
+  return api<{ ok: boolean }>(path, { method: "DELETE" });
+}

@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 
-import { api, setAuthToken, User } from "@/src/api";
+import { api, setAuthToken, setUnauthorizedHandler, User } from "@/src/api";
 import { queryClient } from "@/src/query-client";
 import { storage } from "@/src/utils/storage";
 
@@ -52,6 +52,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     queryClient.clear();
     setUser(null);
   }, []);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      logout();
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [logout]);
 
   return <Ctx.Provider value={{ user, loading, login, logout }}>{children}</Ctx.Provider>;
 }
