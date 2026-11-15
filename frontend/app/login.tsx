@@ -7,13 +7,19 @@ import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-nativ
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { HERO_IMAGE, HOME } from "@/src/api";
+import { HERO_IMAGE, HOME, Role, User } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import Icon from "@/src/components/Icon";
 import { makeStyles, useTheme } from "@/src/theme";
 
+const TEST_ROLES: { role: Role; label: string; icon: "room-service-outline" | "chef-hat" | "store-outline" }[] = [
+  { role: "waiter", label: "Kellner", icon: "room-service-outline" },
+  { role: "kitchen", label: "Küche", icon: "chef-hat" },
+  { role: "owner", label: "Inhaber", icon: "store-outline" },
+];
+
 export default function Login() {
-  const { user, login } = useAuth();
+  const { user, login, demoLogin } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
@@ -26,11 +32,13 @@ export default function Login() {
 
   if (user) return <Redirect href={HOME[user.role]} />;
 
-  const submit = async () => {
+  const submit = () => run(() => login(username.trim().toLowerCase(), password.trim()));
+
+  const run = async (fn: () => Promise<User>) => {
     setBusy(true);
     setError("");
     try {
-      const u = await login(username.trim().toLowerCase(), password.trim());
+      const u = await fn();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       router.replace(HOME[u.role]);
     } catch (e: any) {
@@ -113,6 +121,21 @@ export default function Login() {
               <Text style={styles.submitText}>Anmelden</Text>
             )}
           </Pressable>
+          <Text style={styles.testTitle}>Test-Anmeldung (ohne Passwort)</Text>
+          <View style={styles.testRow}>
+            {TEST_ROLES.map((r) => (
+              <Pressable
+                key={r.role}
+                testID={`demo-login-${r.role}-button`}
+                disabled={busy}
+                onPress={() => run(() => demoLogin(r.role))}
+                style={({ pressed }) => [styles.testBtn, pressed && { opacity: 0.85 }]}
+              >
+                <Icon name={r.icon} size={22} color={colors.brandPrimary} />
+                <Text style={styles.testBtnText}>{r.label}</Text>
+              </Pressable>
+            ))}
+          </View>
           <Text style={styles.demo} testID="login-help-text">
             Kein Zugang oder Passwort vergessen? Bitte wenden Sie sich an den Inhaber.
           </Text>
@@ -163,5 +186,18 @@ const useStyles = makeStyles((c) => ({
     marginTop: 4,
   },
   submitText: { color: c.onBrandPrimary, fontSize: 17, fontWeight: "800" },
+  testTitle: { fontSize: 13, fontWeight: "700", color: c.onSurfaceTertiary, marginTop: 28, marginBottom: 8, textAlign: "center" },
+  testRow: { flexDirection: "row", gap: 8 },
+  testBtn: {
+    flex: 1,
+    minHeight: 64,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: c.brandPrimary,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  testBtnText: { color: c.brandPrimary, fontWeight: "800", fontSize: 14 },
   demo: { textAlign: "center", color: c.muted, fontSize: 13, marginTop: 16, lineHeight: 20 },
 }));

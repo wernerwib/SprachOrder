@@ -362,6 +362,26 @@ async def login(body: LoginIn):
     return {"access_token": make_token(user), "token_type": "bearer", "user": public_user(user)}
 
 
+class DemoLoginIn(BaseModel):
+    role: Literal["waiter", "kitchen", "owner"]
+
+
+@api.post("/auth/demo-login")
+async def demo_login(body: DemoLoginIn):
+    """Test login per role without password (disable via DEMO_LOGIN_ENABLED=false)."""
+    if os.environ.get("DEMO_LOGIN_ENABLED", "true").lower() != "true":
+        raise HTTPException(404, "Test-Anmeldung ist deaktiviert")
+    seed = next(s for s in SEED_USERS if s[2] == body.role)
+    doc = await db.users.find_one({"username": seed[0]}) or await db.users.find_one({"role": body.role})
+    if not doc:
+        hashed = await run_in_threadpool(lambda: bcrypt.hashpw(seed[1].encode(), bcrypt.gensalt()).decode())
+        user = UserDoc(username=seed[0], password_hash=hashed, role=body.role, display_name=seed[3])
+        await db.users.insert_one(user.to_mongo())
+    else:
+        user = UserDoc.from_mongo(doc)
+    return {"access_token": make_token(user), "token_type": "bearer", "user": public_user(user)}
+
+
 @api.get("/auth/me")
 async def me(user: UserDoc = Depends(current_user)):
     return public_user(user)

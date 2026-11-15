@@ -29,3 +29,4 @@ Restaurants use apps where waiters send orders per table to the kitchen. The use
 ## Backlog
 - P1: Revenue history for past days/weeks
 - P2: Upload photos for new dishes, delete voice notes, receipt as PDF/print
+- Test-Anmeldung ohne Passwort (Buttons Kellner/Küche/Inhaber auf Login, /api/auth/demo-login)
