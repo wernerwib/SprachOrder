@@ -11,6 +11,7 @@ type AuthCtx = {
   loading: boolean;
   login: (username: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
+  setSession: (token: string, user: User) => Promise<void>;
 };
 
 const Ctx = createContext<AuthCtx | null>(null);
@@ -60,7 +61,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => setUnauthorizedHandler(null);
   }, [logout]);
 
-  return <Ctx.Provider value={{ user, loading, login, logout }}>{children}</Ctx.Provider>;
+  const setSession = useCallback(async (token: string, u: User) => {
+    setAuthToken(token);
+    await storage.secureSet(TOKEN_KEY, token);
+    setUser(u);
+  }, []);
+
+  return <Ctx.Provider value={{ user, loading, login, logout, setSession }}>{children}</Ctx.Provider>;
 }
 
 export function useAuth() {

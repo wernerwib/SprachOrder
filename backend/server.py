@@ -102,6 +102,24 @@ class UserDoc(BaseDocument):
     password_hash: str
     role: Literal["waiter", "kitchen", "owner"]
     display_name: str
+    must_change_password: bool = False
+    password_version: int = 0
+
+
+class PasswordChangeIn(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str
+
+
+class SettingsIn(BaseModel):
+    restaurant_name: Annotated[str, BeforeValidator(lambda v: v.strip() if isinstance(v, str) else v)] = Field(min_length=1, max_length=60)
+    address: Annotated[str, BeforeValidator(lambda v: v.strip() if isinstance(v, str) else v)] = Field("", max_length=120)
+    review_url: Annotated[str, BeforeValidator(lambda v: v.strip() if isinstance(v, str) else v)] = Field(
+        "", max_length=300, pattern=r"^(https://\S+)?$"
+    )
+
+
+DEFAULT_SETTINGS = {"restaurant_name": "Pizzaiolo", "address": "", "review_url": ""}
 
 
 class MenuItemDoc(BaseDocument):
@@ -225,7 +243,9 @@ bearer = HTTPBearer(auto_error=False)
 
 def make_token(user: UserDoc) -> str:
     exp = datetime.now(timezone.utc) + timedelta(hours=JWT_HOURS)
-    return jwt.encode({"sub": user.username, "role": user.role, "exp": exp}, JWT_SECRET, algorithm="HS256")
+    return jwt.encode(
+        {"sub": user.username, "role": user.role, "ver": user.password_version, "exp": exp}, JWT_SECRET, algorithm="HS256"
+    )
 
 
 async def user_from_token(token: Optional[str]) -> UserDoc:
@@ -238,7 +258,11 @@ async def user_from_token(token: Optional[str]) -> UserDoc:
     doc = await db.users.find_one({"username": data.get("sub")})
     if not doc:
         raise HTTPException(401, "Benutzer unbekannt")
-    return UserDoc.from_mongo(doc)
+    user = UserDoc.from_mongo(doc)
+    # password changed since this token was issued -> token revoked
+    if data.get("ver", 0) != user.password_version:
+        raise HTTPException(401, "Passwort wurde geändert – bitte neu anmelden")
+    return user
 
 
 async def current_user(cred: Optional[HTTPAuthorizationCredentials] = Depends(bearer)) -> UserDoc:
@@ -254,7 +278,12 @@ def require_role(role: str):
 
 
 def public_user(u: UserDoc) -> dict:
-    return {"username": u.username, "role": u.role, "display_name": u.display_name}
+    return {
+        "username": u.username,
+        "role": u.role,
+        "display_name": u.display_name,
+        "must_change_password": u.must_change_password,
+    }
 
 
 # ---------- Storage ----------
@@ -338,6 +367,49 @@ async def me(user: UserDoc = Depends(current_user)):
     return public_user(user)
 
 
+@api.post("/auth/change-password")
+async def change_password(body: PasswordChangeIn, user: UserDoc = Depends(current_user)):
+    doc = await db.users.find_one({"username": user.username})
+    ok = await run_in_threadpool(lambda: bcrypt.checkpw(body.current_password.strip().encode(), doc["password_hash"].encode()))
+    if not ok:
+        raise HTTPException(400, "Aktuelles Passwort ist falsch")
+    try:
+        new_pw = _pw_ok(body.new_password)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if new_pw == body.current_password.strip():
+        raise HTTPException(422, "Das neue Passwort muss sich vom alten unterscheiden")
+    hashed = await run_in_threadpool(lambda: bcrypt.hashpw(new_pw.encode(), bcrypt.gensalt()).decode())
+    res = await db.users.update_one(
+        # legacy/seeded docs have no password_version field yet (treated as 0)
+        {"username": user.username,
+         "password_version": {"$in": [0, None]} if user.password_version == 0 else user.password_version},
+        {"$set": {"password_hash": hashed, "must_change_password": False}, "$inc": {"password_version": 1}},
+    )
+    if res.modified_count != 1:
+        raise HTTPException(409, "Passwort wurde gerade schon geändert – bitte neu anmelden")
+    fresh = UserDoc.from_mongo(await db.users.find_one({"username": user.username}))
+    return {"access_token": make_token(fresh), "token_type": "bearer", "user": public_user(fresh)}
+
+
+@api.get("/security/status")
+async def security_status(_: UserDoc = Depends(require_role("owner"))):
+    docs = await db.users.find({"must_change_password": True}, {"_id": 0, "username": 1, "role": 1, "display_name": 1}).to_list(100)
+    return {"default_password_users": docs}
+
+
+@api.get("/settings")
+async def get_settings(_: UserDoc = Depends(current_user)):
+    doc = await db.meta.find_one({"_id": "settings"}) or {}
+    return {k: doc.get(k, v) for k, v in DEFAULT_SETTINGS.items()}
+
+
+@api.put("/settings")
+async def put_settings(body: SettingsIn, _: UserDoc = Depends(require_role("owner"))):
+    await db.meta.update_one({"_id": "settings"}, {"$set": body.model_dump()}, upsert=True)
+    return body.model_dump()
+
+
 @api.get("/menu")
 async def menu(_: UserDoc = Depends(current_user)):
     docs = await db.menu.find({}).sort("id", ASCENDING).to_list(500)
@@ -388,7 +460,8 @@ async def create_staff(body: StaffCreateIn, _: UserDoc = Depends(require_role("o
 async def reset_staff_password(username: str, body: StaffPasswordIn, _: UserDoc = Depends(require_role("owner"))):
     hashed = await run_in_threadpool(lambda: bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode())
     res = await db.users.update_one(
-        {"username": username.lower(), "role": {"$in": ["waiter", "kitchen"]}}, {"$set": {"password_hash": hashed}}
+        {"username": username.lower(), "role": {"$in": ["waiter", "kitchen"]}},
+        {"$set": {"password_hash": hashed, "must_change_password": False}, "$inc": {"password_version": 1}},
     )
     if res.matched_count == 0:
         raise HTTPException(404, "Konto nicht gefunden")
@@ -798,21 +871,34 @@ async def seed_users():
             # safety net: the app must always have an owner account
             username, pw, role, name = SEED_USERS[-1]
             hashed = bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
-            await db.users.insert_one(UserDoc(username=username, password_hash=hashed, role=role, display_name=name).to_mongo())
+            await db.users.insert_one(UserDoc(username=username, password_hash=hashed, role=role, display_name=name, must_change_password=True).to_mongo())
         return
     for username, pw, role, name in SEED_USERS:
         if await db.users.find_one({"username": username}):
             continue
         hashed = bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
-        user = UserDoc(username=username, password_hash=hashed, role=role, display_name=name)
+        user = UserDoc(username=username, password_hash=hashed, role=role, display_name=name, must_change_password=True)
         await db.users.insert_one(user.to_mongo())
     await db.meta.update_one({"_id": "seed_users_v1"}, {"$set": {"done_at": datetime.now(timezone.utc).isoformat()}}, upsert=True)
+
+
+async def flag_default_passwords():
+    """One-time per account: mark seeded accounts that still use their published demo password."""
+    for username, pw, _role, _name in SEED_USERS:
+        doc = await db.users.find_one({"username": username, "must_change_password": {"$exists": False}})
+        if not doc:
+            continue
+        still_default = await run_in_threadpool(lambda: bcrypt.checkpw(pw.encode(), doc["password_hash"].encode()))
+        await db.users.update_one({"username": username}, {"$set": {"must_change_password": still_default}})
 
 
 @app.on_event("startup")
 async def startup():
     app.state.index_task = asyncio.create_task(ensure_indexes())
     await seed_users()
+    await flag_default_passwords()
+    # older accounts predate password_version; give them the field once
+    await db.users.update_many({"password_version": {"$exists": False}}, {"$set": {"password_version": 0}})
     if await db.menu.count_documents({}) == 0:
         await db.menu.insert_many([MenuItemDoc(**m).to_mongo() for m in MENU])
     # earlier served orders (before billing existed) count as paid

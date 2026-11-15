@@ -35,6 +35,11 @@ export default function OwnerMenu() {
   }, [editing]);
 
   const q = useQuery({ queryKey: ["menu"], queryFn: () => api<MenuItem[]>("/menu"), enabled: user?.role === "owner" });
+  const securityQ = useQuery({
+    queryKey: ["security"],
+    queryFn: () => api<{ default_password_users: { username: string; role: string }[] }>("/security/status"),
+    enabled: user?.role === "owner",
+  });
 
   const save = useMutation({
     mutationFn: (v: { id?: number; name: string; price: number }) =>
@@ -115,7 +120,29 @@ export default function OwnerMenu() {
           keyExtractor={(m) => String(m.id)}
           contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: insets.bottom + 104 }}
           ListHeaderComponent={
-            <Text style={styles.hint}>Ausgeschaltete Gerichte sehen die Kellner nicht mehr auf der Speisekarte.</Text>
+            <View style={{ gap: 10, marginBottom: 6 }}>
+              {!!securityQ.data?.default_password_users.length && (
+                <Pressable testID="owner-security-banner" onPress={() => router.push("/staff")} style={styles.banner}>
+                  <Icon name="shield-alert-outline" size={22} color={colors.onWarning} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.bannerTitle}>Demo-Passwörter noch aktiv</Text>
+                    <Text style={styles.bannerText}>
+                      {securityQ.data.default_password_users.map((u) => u.username).join(", ")} – vor dem Start bitte ändern
+                    </Text>
+                  </View>
+                  <Icon name="chevron-right" size={22} color={colors.onWarning} />
+                </Pressable>
+              )}
+              <Pressable testID="owner-receipt-settings-button" onPress={() => router.push("/settings")} style={styles.settingsRow}>
+                <Icon name="qrcode" size={22} color={colors.onBrandTertiary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.settingsTitle}>Bon & Google-Bewertung</Text>
+                  <Text style={styles.settingsText}>Name, Adresse und QR-Code auf dem Bon</Text>
+                </View>
+                <Icon name="chevron-right" size={22} color={colors.onBrandTertiary} />
+              </Pressable>
+              <Text style={styles.hint}>Ausgeschaltete Gerichte sehen die Kellner nicht mehr auf der Speisekarte.</Text>
+            </View>
           }
           renderItem={({ item, index }) => (
             <Animated.View entering={FadeInDown.delay(index * 40)} style={[styles.row, !item.available && { opacity: 0.6 }]} testID={`owner-menu-item-${item.id}`}>
@@ -225,6 +252,12 @@ const useStyles = makeStyles((c) => ({
   iconBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: c.surfaceTertiary, alignItems: "center", justifyContent: "center" },
   center: { alignItems: "center", padding: 32, gap: 16 },
   hint: { fontSize: 13, color: c.muted, marginBottom: 6 },
+  banner: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: c.warning, borderRadius: 12, padding: 12 },
+  bannerTitle: { color: c.onWarning, fontWeight: "800", fontSize: 15 },
+  bannerText: { color: c.onWarning, fontSize: 13 },
+  settingsRow: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: c.brandTertiary, borderRadius: 12, padding: 12, minHeight: 56 },
+  settingsTitle: { color: c.onBrandTertiary, fontWeight: "800", fontSize: 15 },
+  settingsText: { color: c.onBrandTertiary, fontSize: 13 },
   row: {
     flexDirection: "row",
     alignItems: "center",

@@ -6,7 +6,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-nati
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, Bill, euro, HOME } from "@/src/api";
+import { api, Bill, euro, HOME, Settings } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import Icon from "@/src/components/Icon";
 import { useToast } from "@/src/toast";
@@ -25,6 +25,7 @@ export default function TableBill() {
   const styles = useStyles();
   const [split, setSplit] = useState(false);
   const [sel, setSel] = useState<Record<number, number>>({});
+  const settingsQ = useQuery({ queryKey: ["settings"], queryFn: () => api<Settings>("/settings"), enabled: !!user });
 
   const q = useQuery({
     queryKey: ["bill", table],
@@ -85,7 +86,7 @@ export default function TableBill() {
   return (
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable testID="bill-back-button" onPress={() => router.back()} style={styles.iconBtn} accessibilityLabel="Zurück">
+        <Pressable testID="bill-back-button" onPress={() => (router.canGoBack() ? router.back() : router.replace(`/waiter/table/${table}`))} style={styles.iconBtn} accessibilityLabel="Zurück">
           <Icon name="arrow-left" size={24} color={colors.onSurface} />
         </Pressable>
         <View style={{ flex: 1 }}>
@@ -98,7 +99,7 @@ export default function TableBill() {
           <>
             <Pressable
               testID="bill-print-button"
-              onPress={() => printReceipt(bill).catch(() => toast("Drucken nicht möglich", "error"))}
+              onPress={() => printReceipt(bill, settingsQ.data).catch(() => toast("Drucken nicht möglich", "error"))}
               style={[styles.iconBtn, styles.headBtn]}
               accessibilityLabel="Bon drucken"
             >
@@ -106,7 +107,7 @@ export default function TableBill() {
             </Pressable>
             <Pressable
               testID="bill-share-button"
-              onPress={() => shareReceipt(bill).catch(() => toast("Bon konnte nicht erstellt werden", "error"))}
+              onPress={() => shareReceipt(bill, settingsQ.data).catch(() => toast("Bon konnte nicht erstellt werden", "error"))}
               style={[styles.iconBtn, styles.headBtn]}
               accessibilityLabel="Bon als PDF teilen"
             >
@@ -135,7 +136,7 @@ export default function TableBill() {
           <Animated.View entering={FadeInDown} style={styles.receipt} testID="bill-receipt">
             <View style={styles.receiptHead}>
               <Icon name="pizza" size={22} color={colors.brandPrimary} />
-              <Text style={styles.receiptBrand}>Pizzaiolo</Text>
+              <Text style={styles.receiptBrand}>{settingsQ.data?.restaurant_name || "Pizzaiolo"}</Text>
             </View>
             <Text style={styles.receiptMeta}>
               Tisch {table} · {bill.orders} Bestellung(en) ·{" "}

@@ -12,7 +12,8 @@ export const getAuthToken = () => authToken;
 
 export type Role = "waiter" | "kitchen" | "owner";
 export const HOME = { waiter: "/waiter", kitchen: "/kitchen", owner: "/owner" } as const;
-export type User = { username: string; role: Role; display_name: string };
+export type User = { username: string; role: Role; display_name: string; must_change_password?: boolean };
+export type Settings = { restaurant_name: string; address: string; review_url: string };
 export type MenuItem = { id: number; name: string; price: number; image?: string | null; available: boolean };
 export type OrderStatus = "new" | "preparing" | "ready" | "served";
 export type OrderItem = {
@@ -71,17 +72,19 @@ export type Report = {
 };
 
 export async function api<T>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
+  const sentToken = authToken;
   const res = await fetch(`${API_URL}${path}`, {
     method: opts.method ?? "GET",
     headers: {
       "Content-Type": "application/json",
-      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      ...(sentToken ? { Authorization: `Bearer ${sentToken}` } : {}),
     },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   if (!res.ok) {
     // account deleted or session expired -> back to login
-    if (res.status === 401 && authToken && path !== "/auth/login") onUnauthorized?.();
+    // only if this request carried the current token (not a request fired before the session was restored)
+    if (res.status === 401 && sentToken && sentToken === authToken && path !== "/auth/login") onUnauthorized?.();
     let msg = `Fehler ${res.status}`;
     try {
       const j = await res.json();

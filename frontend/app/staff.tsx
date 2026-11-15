@@ -12,11 +12,16 @@ import Icon from "@/src/components/Icon";
 import { useToast } from "@/src/toast";
 import { makeStyles, useTheme } from "@/src/theme";
 
-type Sheet = { mode: "create" } | { mode: "password"; staff: Staff } | { mode: "delete"; staff: Staff } | null;
+type Sheet =
+  | { mode: "create" }
+  | { mode: "own" }
+  | { mode: "password"; staff: Staff }
+  | { mode: "delete"; staff: Staff }
+  | null;
 const ROLE_LABEL = { waiter: "Kellner", kitchen: "Küche", owner: "Inhaber" } as const;
 
 export default function StaffScreen() {
-  const { user, loading } = useAuth();
+  const { user, loading, setSession } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
@@ -30,6 +35,7 @@ export default function StaffScreen() {
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [sheetError, setSheetError] = useState("");
+  const [currentPw, setCurrentPw] = useState("");
 
   useEffect(() => {
     if (sheet) {
@@ -39,6 +45,7 @@ export default function StaffScreen() {
       setPassword("");
       setShowPw(false);
       setSheetError("");
+      setCurrentPw("");
     }
   }, [sheet]);
 
@@ -49,7 +56,21 @@ export default function StaffScreen() {
     toast(msg, "success");
     setSheet(null);
     qc.invalidateQueries({ queryKey: ["staff"] });
+    qc.invalidateQueries({ queryKey: ["security"] });
   };
+
+  const changeOwn = useMutation({
+    mutationFn: () =>
+      api<{ access_token: string; user: Staff }>("/auth/change-password", {
+        method: "POST",
+        body: { current_password: currentPw.trim(), new_password: password.trim() },
+      }),
+    onSuccess: async (r) => {
+      await setSession(r.access_token, r.user);
+      done("Ihr Passwort wurde geändert");
+    },
+    onError,
+  });
 
   const create = useMutation({
     mutationFn: () =>
@@ -78,7 +99,7 @@ export default function StaffScreen() {
   const pwValid = password.trim().length >= 8;
   const userValid = /^[a-z0-9_.-]{3,32}$/.test(username.trim().toLowerCase());
   const createValid = displayName.trim().length > 0 && userValid && pwValid;
-  const busy = create.isPending || reset.isPending || remove.isPending;
+  const busy = create.isPending || reset.isPending || remove.isPending || changeOwn.isPending;
 
   const pwField = (
     <>
@@ -111,11 +132,26 @@ export default function StaffScreen() {
   return (
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable testID="staff-back-button" onPress={() => router.back()} style={styles.iconBtn} accessibilityLabel="Zurück">
+        <Pressable
+          testID="staff-back-button"
+          onPress={() => (router.canGoBack() ? router.back() : router.replace("/owner"))}
+          style={styles.iconBtn}
+          accessibilityLabel="Zurück"
+        >
           <Icon name="arrow-left" size={24} color={colors.onSurface} />
         </Pressable>
-        <Text style={styles.title}>Personal</Text>
+        <Text style={[styles.title, { flex: 1 }]}>Personal</Text>
+        <Pressable testID="staff-own-password-button" onPress={() => setSheet({ mode: "own" })} style={styles.ownBtn}>
+          <Icon name="lock-reset" size={18} color={colors.onBrandSecondary} />
+          <Text style={styles.ownBtnText}>Mein Passwort</Text>
+        </Pressable>
       </View>
+      {user.must_change_password && (
+        <Pressable testID="staff-own-demo-warning" onPress={() => setSheet({ mode: "own" })} style={styles.warn}>
+          <Icon name="shield-alert-outline" size={20} color={colors.onWarning} />
+          <Text style={styles.warnText}>Sie nutzen noch das Demo-Passwort. Bitte jetzt ändern.</Text>
+        </Pressable>
+      )}
 
       {q.isLoading ? (
         <ActivityIndicator style={{ marginTop: 48 }} size="large" color={colors.brandPrimary} />
@@ -155,6 +191,11 @@ export default function StaffScreen() {
                 <Text style={styles.muted} numberOfLines={1}>
                   {ROLE_LABEL[item.role]} · {item.username}
                 </Text>
+                {item.must_change_password && (
+                  <View style={styles.demoBadge} testID={`staff-demo-badge-${item.username}`}>
+                    <Text style={styles.demoBadgeText}>Demo-Passwort – bitte ändern</Text>
+                  </View>
+                )}
               </View>
               <Pressable
                 testID={`staff-reset-${item.username}`}
@@ -246,6 +287,28 @@ export default function StaffScreen() {
                 {pwField}
               </>
             )}
+            {sheet?.mode === "own" && (
+              <>
+                <Text style={styles.sheetTitle}>Mein Passwort ändern</Text>
+                <Text style={styles.label}>Aktuelles Passwort</Text>
+                <TextInput
+                  testID="staff-current-password-input"
+                  value={currentPw}
+                  onChangeText={(v) => {
+                    setCurrentPw(v);
+                    setSheetError("");
+                  }}
+                  secureTextEntry={!showPw}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="off"
+                  placeholder="Aktuelles Passwort"
+                  placeholderTextColor={colors.muted}
+                  style={styles.input}
+                />
+                {pwField}
+              </>
+            )}
             {sheet?.mode === "delete" && (
               <>
                 <Text style={styles.sheetTitle}>Zugang entfernen?</Text>
@@ -282,6 +345,16 @@ export default function StaffScreen() {
                   style={[styles.primary, { flex: 1 }, (!pwValid || busy) && { opacity: 0.45 }]}
                 >
                   {busy ? <ActivityIndicator color={colors.onBrandPrimary} /> : <Text style={styles.primaryText}>Speichern</Text>}
+                </Pressable>
+              )}
+              {sheet?.mode === "own" && (
+                <Pressable
+                  testID="staff-own-password-save-button"
+                  disabled={!pwValid || !currentPw.trim() || busy}
+                  onPress={() => changeOwn.mutate()}
+                  style={[styles.primary, { flex: 1 }, (!pwValid || !currentPw.trim() || busy) && { opacity: 0.45 }]}
+                >
+                  {busy ? <ActivityIndicator color={colors.onBrandPrimary} /> : <Text style={styles.primaryText}>Ändern</Text>}
                 </Pressable>
               )}
               {sheet?.mode === "delete" && (
@@ -363,6 +436,12 @@ const useStyles = makeStyles((c) => ({
   sheetSub: { fontSize: 14, color: c.onSurfaceTertiary, lineHeight: 20, marginBottom: 16 },
   sheetRow: { flexDirection: "row", gap: 10, marginTop: 8 },
   sheetError: { color: c.error, fontSize: 14, fontWeight: "700", marginBottom: 4 },
+  ownBtn: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 44, paddingHorizontal: 12, borderRadius: 999, backgroundColor: c.brandSecondary },
+  ownBtnText: { color: c.onBrandSecondary, fontWeight: "700", fontSize: 14 },
+  warn: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: c.warning, margin: 16, marginBottom: 0, padding: 12, borderRadius: 12 },
+  warnText: { flex: 1, color: c.onWarning, fontWeight: "700", fontSize: 14 },
+  demoBadge: { alignSelf: "flex-start", backgroundColor: c.warning, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, marginTop: 4 },
+  demoBadgeText: { color: c.onWarning, fontSize: 11, fontWeight: "800" },
   label: { fontSize: 13, fontWeight: "700", color: c.onSurfaceTertiary, marginBottom: 6 },
   input: {
     minHeight: 52,

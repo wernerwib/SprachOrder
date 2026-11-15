@@ -107,7 +107,7 @@ export default function TableOrder() {
   return (
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable testID="table-back-button" onPress={() => router.back()} style={styles.iconBtn} accessibilityLabel="Zurück">
+        <Pressable testID="table-back-button" onPress={() => (router.canGoBack() ? router.back() : router.replace("/waiter"))} style={styles.iconBtn} accessibilityLabel="Zurück">
           <Icon name="arrow-left" size={24} color={colors.onSurface} />
         </Pressable>
         <Text style={styles.title} testID="table-title">

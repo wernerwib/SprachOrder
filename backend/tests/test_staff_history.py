@@ -71,7 +71,7 @@ class TestStaffPerms:
         assert "kellner1" in names and "kueche" in names and "inhaber" not in names
         for u in data:
             assert "password_hash" not in u and "_id" not in u
-            assert set(u.keys()) == {"username", "role", "display_name"}
+            assert set(u.keys()) == {"username", "role", "display_name", "must_change_password"}
 
 
 # Staff: CRUD lifecycle
@@ -98,7 +98,7 @@ class TestStaffCrud:
         assert r.status_code == 201, r.text
         created.append(uname)
         d = r.json()
-        assert d == {"username": uname, "role": "waiter", "display_name": "TEST Waiter"}
+        assert d == {"username": uname, "role": "waiter", "display_name": "TEST Waiter", "must_change_password": False}
         # list has it
         names = [u["username"] for u in requests.get(f"{API}/staff", headers=H(owner), timeout=20).json()]
         assert uname in names

@@ -7,13 +7,10 @@ import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-nativ
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { HERO_IMAGE, HOME, Role } from "@/src/api";
+import { HERO_IMAGE, HOME } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import Icon from "@/src/components/Icon";
 import { makeStyles, useTheme } from "@/src/theme";
-
-const DEFAULT_USER: Record<Role, string> = { waiter: "kellner1", kitchen: "kueche", owner: "inhaber" };
-const DEMO_PASSWORD: Record<Role, string> = { waiter: "Kellner123!", kitchen: "Kueche123!", owner: "Inhaber123!" };
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -21,21 +18,13 @@ export default function Login() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useStyles();
-  const [role, setRole] = useState<Role>("waiter");
-  const [username, setUsername] = useState(DEFAULT_USER.waiter);
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [showPw, setShowPw] = useState(false);
 
   if (user) return <Redirect href={HOME[user.role]} />;
-
-  const pickRole = (r: Role) => {
-    setRole(r);
-    setUsername(DEFAULT_USER[r]);
-    setPassword("");
-    setError("");
-  };
 
   const submit = async () => {
     setBusy(true);
@@ -49,23 +38,6 @@ export default function Login() {
     } finally {
       setBusy(false);
     }
-  };
-
-  const RoleCard = ({ r, icon, label, sub }: { r: Role; icon: string; label: string; sub: string }) => {
-    const active = role === r;
-    return (
-      <Pressable
-        testID={`login-role-${r}`}
-        onPress={() => pickRole(r)}
-        style={[styles.roleCard, active && styles.roleCardActive]}
-      >
-        <View style={[styles.roleIcon, active && { backgroundColor: colors.brandPrimary }]}>
-          <Icon name={icon as any} size={26} color={active ? colors.onBrandPrimary : colors.onBrandTertiary} />
-        </View>
-        <Text style={styles.roleLabel}>{label}</Text>
-        <Text style={styles.roleSub}>{sub}</Text>
-      </Pressable>
-    );
   };
 
   return (
@@ -82,13 +54,7 @@ export default function Login() {
 
         <View style={styles.body}>
           <Text style={styles.title}>Willkommen zurück</Text>
-          <Text style={styles.subtitle}>Wählen Sie Ihren Bereich und melden Sie sich an.</Text>
-
-          <View style={styles.roleRow}>
-            <RoleCard r="waiter" icon="room-service-outline" label="Kellner" sub="Tische" />
-            <RoleCard r="kitchen" icon="chef-hat" label="Küche" sub="Tickets" />
-            <RoleCard r="owner" icon="store-cog-outline" label="Inhaber" sub="Speisekarte" />
-          </View>
+          <Text style={styles.subtitle}>Melden Sie sich mit Ihrem Zugang an. Die App öffnet automatisch Ihren Bereich.</Text>
 
           <Text style={styles.label}>Benutzername</Text>
           <TextInput
@@ -147,20 +113,8 @@ export default function Login() {
               <Text style={styles.submitText}>Anmelden</Text>
             )}
           </Pressable>
-          <Pressable
-            testID="login-fill-demo-button"
-            onPress={() => {
-              setUsername(DEFAULT_USER[role]);
-              setPassword(DEMO_PASSWORD[role]);
-              setError("");
-            }}
-            style={styles.demoBtn}
-          >
-            <Icon name="account-key-outline" size={18} color={colors.onBrandTertiary} />
-            <Text style={styles.demoBtnText}>Demo-Zugang einsetzen</Text>
-          </Pressable>
-          <Text style={styles.demo} testID="login-demo-hint">
-            Demo: kellner1 / kellner2 · Kellner123!{"\n"}Küche: kueche · Kueche123!{"\n"}Inhaber: inhaber · Inhaber123!
+          <Text style={styles.demo} testID="login-help-text">
+            Kein Zugang oder Passwort vergessen? Bitte wenden Sie sich an den Inhaber.
           </Text>
         </View>
       </KeyboardAwareScrollView>
@@ -187,28 +141,6 @@ const useStyles = makeStyles((c) => ({
   body: { paddingHorizontal: 24, marginTop: -24 },
   title: { fontSize: 32, fontWeight: "800", color: c.onSurface, letterSpacing: -0.5 },
   subtitle: { fontSize: 15, color: c.muted, marginTop: 4, marginBottom: 24 },
-  roleRow: { flexDirection: "row", gap: 8, marginBottom: 24 },
-  roleCard: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 20,
-    backgroundColor: c.surfaceSecondary,
-    borderWidth: 1.5,
-    borderColor: c.border,
-    gap: 6,
-  },
-  roleCardActive: { borderColor: c.brandPrimary, backgroundColor: c.brandTertiary },
-  roleIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: c.brandTertiary,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 6,
-  },
-  roleLabel: { fontSize: 16, fontWeight: "800", color: c.onSurface },
-  roleSub: { fontSize: 12, color: c.muted },
   label: { fontSize: 13, fontWeight: "700", color: c.onSurfaceTertiary, marginBottom: 6 },
   input: {
     minHeight: 52,
@@ -222,17 +154,6 @@ const useStyles = makeStyles((c) => ({
   error: { color: c.error, fontSize: 14, marginBottom: 12, fontWeight: "600" },
   pwRow: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
   eyeBtn: { position: "absolute", right: 4, width: 44, height: 44, alignItems: "center", justifyContent: "center" },
-  demoBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    minHeight: 48,
-    borderRadius: 12,
-    backgroundColor: c.brandTertiary,
-    marginTop: 12,
-  },
-  demoBtnText: { color: c.onBrandTertiary, fontSize: 15, fontWeight: "700" },
   submit: {
     minHeight: 56,
     borderRadius: 12,

@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 13 re-checked the back-button bug from iteration 12 (back did nothing after a direct load or reload). The fix works: all 4 items pass at 375x667. (1) After a direct load or reload of /waiter/bill/3, bill-back-button goes to /waiter/table/3 and 'Tisch 3' is shown. (2) After a direct load or reload of /waiter/table/3, table-back-button goes to /waiter. (3) After a direct load or reload of /report, report-back-button goes to /waiter for kellner1, /owner for inhaber and /kitchen for kueche. (4) In-app navigation still goes back to the previous screen: /waiter -> table/2 -> bill/2 -> back -> table/2 -> back -> /waiter; waiter, owner and kitchen -> /report -> back -> home. No 'GO_BACK was not handled' message appeared, neither on the page nor in the console. No data was created or changed. No deprecated Expo packages detected in the reviewed files.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "kitchen", "issues": ["Low priority, outside the scope of this check: old open orders show their age in minutes only, for example '12933 Min.'. Showing hours or days after 60 minutes would read better."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "bill/[id].tsx:89, table/[id].tsx:110 and report.tsx:31 now use router.canGoBack() ? router.back() : router.replace(fallback). This is the same pattern as staff.tsx and settings.tsx. The canGoBack-or-replace pattern now appears in 5 screens; a shared useSafeBack(fallback) helper would remove the repetition (optional)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend-only request)", "frontend": "100% (14/14 navigation checks)"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "To test back buttons after a direct load: log in through the /login UI (login-username-input, login-password-input, login-submit-button), then page.goto(BASE+path), optionally page.reload(), then click the back button. Home testIDs: table-tile-{n}, owner-report-button, kitchen-report-button. The 401 console errors before login are expected (auth probe)."
+}

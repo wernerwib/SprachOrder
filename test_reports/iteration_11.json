@@ -1,0 +1,58 @@
+{
+  "summary": "Iteration 11: tested demo-login removal, must_change_password / change-password / token revocation, owner security UI, receipt settings + Google-review QR on bill print/share, and regressions (staff create/delete, voice modal, kitchen flow). I found and fixed 2 real bugs: (1) CRITICAL backend: POST /api/auth/change-password returned 409 for every seeded account (kellner1/kellner2/kueche/inhaber and alf12345678), because those user docs have no password_version field and the optimistic-lock filter {password_version: 0} never matched. (2) HIGH frontend: after a reload or deep link to a waiter screen, requests sent before the token was restored got 401. The 401 handler then logged the user out (wiping the token), while /auth/me still set the user. The result was a 'logged-in' UI where every request ran without a token and got 401 forever (empty menu/table). After both fixes all requested flows pass. Receipt HTML contains the name, the address, 'Hat es Ihnen geschmeckt?' and a data:image/gif QR. The QR was decoded with zxing-cpp to exactly https://g.page/r/TESTabc123/review. Without a review_url there is no QR block. Backend: 88/89 in the full suite. The only failure is a stale menu assertion: Pizza Funghi is 13.00 in the DB, the seed says 12.00; this is not caused by this run. No deprecated Expo packages detected (expo-av/expo-barcode-scanner/expo-background-fetch not present).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/auth/change-password", "issue": "FIXED by testing agent: always returned 409 'Passwort wurde gerade schon geändert' for legacy/seeded user docs lacking the password_version field (filter {password_version: 0} doesn't match a missing field). Fix in server.py change_password: filter uses {$in:[0,None]} when version is 0. Regression test added (TestLegacyDocChangePassword).", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "startup seed_users safety net (server.py ~line 872)", "issue": "Re-created owner with the published demo password is not flagged must_change_password=True (other seeds are)."},
+      {"endpoint": "users collection", "issue": "Recommend a one-time startup migration: update_many({password_version: {$exists: false}}, {$set: {password_version: 0}}) and set must_change_password false where missing (alf12345678 has neither field) so queries don't depend on defaults."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "src/api.ts 401 handler", "issue": "FIXED by testing agent: requests fired before the session was restored (waiter/table/[id] queries are not gated on user) returned 401. The handler read the module-level authToken at response time, which was already restored, so it called logout(). The token was removed while the user stayed set, and the UI stayed stuck with all requests getting 401. Fix: capture sentToken per request and only call onUnauthorized if sentToken === authToken.", "testID": "menu-add-1", "priority": "HIGH"},
+      {"component": "staff.tsx / settings.tsx back button", "issue": "router.back() does nothing after a page reload/deep link (no history). Use router.canGoBack() ? back() : replace('/owner').", "testID": "staff-back-button", "priority": "LOW"},
+      {"component": "waiter/bill/[id].tsx on-screen receipt card", "issue": "Brand is hardcoded 'Pizzaiolo' (line ~139), while the printed bill uses settings.restaurant_name. They don't match once the owner renames the restaurant.", "testID": "bill-receipt", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "settings", "issues": ["While the review-url input is focused, the focus outline (dark) hides the red error border for an invalid link; the error text is visible."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_security_settings.py",
+    "/app/backend/tests/test_staff_history.py",
+    "/app/test_reports/pytest/iter11_all.xml",
+    "/app/test_reports/pytest/iter11_security.xml"
+  ],
+  "action_items": [
+    "Review/keep the 2 fixes: server.py change_password filter ($in [0,None]) and src/api.ts sentToken check. Consider also adding enabled: !!user to queries in waiter/table/[id].tsx (and others) and a startup migration that sets password_version=0 where missing.",
+    "Reset inhaber's demo flag: the inhaber password was changed via UI and restored to Inhaber123! via API; must_change_password is now false and password_version=2.",
+    "Bill screen card: show settings.restaurant_name instead of the hardcoded 'Pizzaiolo'.",
+    "Back buttons in staff/settings: add a canGoBack fallback.",
+    "seed_users safety-net owner: set must_change_password=True.",
+    "Update test_pizzaiolo_api.py::test_menu (expects Funghi 12.0; DB has 13.0, probably an owner edit) or make it data-independent.",
+    "Remove dead styles demoBtn/demoBtnText in login.tsx."
+  ],
+  "critical_code_review_comments": [
+    "Optimistic-lock update on password_version needs to match legacy docs without the field (fixed).",
+    "Global 401 -> logout handler must only fire for requests that used the current token (fixed).",
+    "review_url validation is consistent front/back (^https://\\S+$); http/javascript/empty-host rejected (422).",
+    "Change-password checks the current password first (400) and then the new-password rules (422); token revocation via JWT 'ver' works for self-change and owner reset."
+  ],
+  "updated_files": [
+    "/app/backend/server.py",
+    "/app/frontend/src/api.ts",
+    "/app/frontend/app/settings.tsx (added testID settings-url-error-text)",
+    "/app/backend/tests/test_security_settings.py (new)",
+    "/app/backend/tests/test_staff_history.py (updated for must_change_password field)"
+  ],
+  "success_rate": {"backend": "99% (88/89; 1 stale data assertion)", "frontend": "100% of requested flows after the 2 fixes"},
+  "seed_data_creation": "Temporary test_* staff accounts (created and deleted; only the 5 original users remain). Settings were set to TEST values and reset to defaults (Pizzaiolo, '', ''). A TEST order on table 6 (2x Margherita, note TEST_receipt) went through new->preparing->ready->served and was closed. This adds a 24.00 € paid order to today's revenue report.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use test_security_settings.py for the security/settings regression. To capture the web receipt HTML, add an init script that polls document iframes and stores contentDocument outerHTML. Decode the QR with zxing-cpp (pip install zxing-cpp) plus PIL, upscaling 4x with NEAREST. The staff list rows can sit behind the 'Neuer Zugang' footer, so use scroll_into_view_if_needed plus a normal click, not force=True. Tables 2/3/4 had pre-existing open orders; don't touch them. Never touch alf12345678.",
+  "rca_of_issue": "Bug 1: seeded users were inserted before password_version existed. UserDoc defaults it to 0, but the Mongo filter {password_version: 0} doesn't match a missing field, so modified_count is 0 and the endpoint returns 409. Repro: log in as kellner1 and change the password, which returns 409. Mitigation: $in [0, None] (applied), plus a migration (recommended). Bug 2: reload /waiter/table/6 while logged in. The queries fire without a token, the restore sets authToken, the 401 responses arrive and the handler sees authToken set, so it logs out and removes the token. /auth/me then resolves setUser, and all later requests go out without a token. Mitigation: per-request sentToken comparison (applied)."
+}

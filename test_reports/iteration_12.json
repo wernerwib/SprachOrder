@@ -1,0 +1,27 @@
+{
+  "summary": "Iteration 12 checked the follow-up fixes. All 4 requested items pass. (1) The bill card shows the saved restaurant_name: I set 'TEST_Trattoria' as owner, the receipt showed it, also after a reload, and 'Pizzaiolo' was gone; then I reset it. (2) After a direct load or reload of /staff and /settings, staff-back-button and settings-back-button go to /owner, and saving the settings after a reload also goes to /owner. (3) The startup migration works: I removed password_version from a test_ account, restarted the backend, and the field was back as 0. Change-password works for kellner2 (changed and changed back, must_change_password flag restored to true) and for a legacy test_ account (the old token gets 401, the new one works). inhaber still has must_change_password=true and password Inhaber123!. (4) The login screen shows no demo hints. Login works for kellner1, kellner2, kueche and inhaber, and the owner security banner is visible. Backend: full suite 100/100, of which 11/11 are in the new test_iter12_followups.py. New bug of the same kind as the staff/settings fix: bill-back-button, table-back-button and report-back-button call router.back() without a canGoBack() fallback. After a direct load or reload they do nothing, and a 'The action GO_BACK was not handled' error toast appears. No deprecated Expo packages detected.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Bill / Table / Report back buttons", "issue": "After a direct load or reload of /waiter/bill/:id, /waiter/table/:id or /report, the back button does nothing (the URL stays the same) and a red 'The action GO_BACK was not handled' toast appears. These buttons call router.back() without the canGoBack() fallback that staff.tsx and settings.tsx now use. References: /app/frontend/app/waiter/bill/[id].tsx:89, /app/frontend/app/waiter/table/[id].tsx:110, /app/frontend/app/report.tsx:31", "testID": "bill-back-button, table-back-button, report-back-button", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter12_followups.py", "/app/test_reports/pytest/pytest_iter12.xml", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Use the same fallback as in staff.tsx: bill-back-button -> router.canGoBack() ? router.back() : router.replace(`/waiter/table/${table}`); table-back-button -> fallback '/waiter'; report-back-button -> fallback to the home screen for the user's role (HOME[user.role])"
+  ],
+  "critical_code_review_comments": [
+    "The change-password filter {password_version: {$in:[0,None]}} plus the startup update_many migration together cover legacy docs correctly",
+    "The startup migration runs after flag_default_passwords, which is fine; the update is idempotent"
+  ],
+  "updated_files": ["/app/backend/tests/test_iter12_followups.py"],
+  "success_rate": {"backend": "100% (100/100)", "frontend": "100% for the requested flows; 3 additional back buttons failing on direct load"},
+  "seed_data_creation": "Temporary data, all cleaned up: test_ accounts (deleted), settings set to TEST_Trattoria (reset to Pizzaiolo/''/''), a 1x Margherita order on table 9 (served and closed, so today's report includes +12.00 EUR). kellner2's password was changed and changed back to Kellner123!; must_change_password was restored to true, and password_version is now 4 (harmless). alf12345678 was not touched, and tables 2/3/4 were not touched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use test_iter12_followups.py; it reverts kellner2 and restores its must_change_password flag through pymongo. To test the startup migration: $unset password_version on a test_ user, run supervisorctl restart backend, then check the field. To test back buttons after a direct load: log in, then page.goto(BASE+path) and click the back button. To create an order: POST /api/orders {table, items:[{menu_id,qty}]}. Before /close works, move the order through preparing -> ready (kueche) -> served (waiter).",
+  "rca_of_issue": "With expo-router on the web, a direct load or reload leaves the navigation stack with a single route, so router.back() emits GO_BACK and nothing handles it. The fix was applied only to staff.tsx and settings.tsx, not to the other screens that use router.back()."
+}

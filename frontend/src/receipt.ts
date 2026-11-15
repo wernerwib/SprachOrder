@@ -1,13 +1,32 @@
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
+import qrcode from "qrcode-generator";
 import { Platform } from "react-native";
 
-import { Bill, euro } from "@/src/api";
+import { Bill, euro, Settings } from "@/src/api";
 
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-export function receiptHtml(bill: Bill) {
+/** QR code as a GIF data URL – works in the receipt HTML and in <Image>. */
+export function qrDataUrl(text: string, cellSize = 4) {
+  const qr = qrcode(0, "M");
+  qr.addData(text);
+  qr.make();
+  return qr.createDataURL(cellSize, 2);
+}
+
+export function receiptHtml(bill: Bill, settings?: Settings) {
+  const name = settings?.restaurant_name || "Pizzaiolo";
+  const address = settings?.address ? `<div class="meta">${esc(settings.address)}</div>` : "";
+  const review = settings?.review_url
+    ? `<hr /><div class="c review">
+        <div class="rt">Hat es Ihnen geschmeckt?</div>
+        <div class="rs">Wir freuen uns über Ihre Bewertung auf Google</div>
+        <img src="${qrDataUrl(settings.review_url)}" width="132" height="132" alt="QR-Code Google-Bewertung" />
+        <div class="rs">QR-Code mit der Handykamera scannen</div>
+      </div>`
+    : "";
   const now = new Date();
   const date = now.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
   const time = now.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
@@ -42,8 +61,12 @@ export function receiptHtml(bill: Bill) {
   .total td { font-size: 20px; font-weight: 800; padding-top: 10px; }
   .open td { font-weight: 800; color: #D84339; }
   .foot { color: #8D786E; font-size: 11px; margin-top: 18px; text-align: center; line-height: 1.5; }
+  .review img { display: block; margin: 10px auto; image-rendering: pixelated; }
+  .rt { font-size: 16px; font-weight: 800; }
+  .rs { color: #8D786E; font-size: 12px; margin-top: 2px; }
 </style></head><body>
-  <div class="c"><h1>Pizzaiolo</h1>
+  <div class="c"><h1>${esc(name)}</h1>
+  ${address}
   <div class="meta">Tisch ${bill.table} · ${date} · ${time} Uhr</div></div>
   <hr />
   <table>${rows}</table>
@@ -52,14 +75,15 @@ export function receiptHtml(bill: Bill) {
     <tr class="total"><td colspan="2">Gesamt</td><td class="r">${euro(bill.total)}</td></tr>
     ${paid}
   </table>
+  ${review}
   <div class="foot">Alle Preise inkl. MwSt.<br/>Vielen Dank für Ihren Besuch – grazie e arrivederci!<br/>
   Rechnungsübersicht, kein Kassenbeleg im Sinne der KassenSichV.</div>
 </body></html>`;
 }
 
 /** Native: creates a PDF and opens the share sheet. Web: prints only the receipt (save as PDF in the dialog). */
-export async function shareReceipt(bill: Bill) {
-  const html = receiptHtml(bill);
+export async function shareReceipt(bill: Bill, settings?: Settings) {
+  const html = receiptHtml(bill, settings);
   if (Platform.OS === "web") {
     printHtmlWeb(html);
     return;
@@ -76,8 +100,8 @@ export async function shareReceipt(bill: Bill) {
   }
 }
 
-export async function printReceipt(bill: Bill) {
-  const html = receiptHtml(bill);
+export async function printReceipt(bill: Bill, settings?: Settings) {
+  const html = receiptHtml(bill, settings);
   if (Platform.OS === "web") {
     printHtmlWeb(html);
     return;

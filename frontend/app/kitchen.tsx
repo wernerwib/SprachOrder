@@ -158,7 +158,7 @@ export default function Kitchen() {
                   <View style={{ alignItems: "flex-end", gap: 4 }}>
                     <View style={[styles.timer, mins >= 15 && { backgroundColor: colors.warning }]}>
                       <Icon name="clock-outline" size={14} color={mins >= 15 ? colors.onWarning : colors.onSurfaceTertiary} />
-                      <Text style={[styles.timerText, mins >= 15 && { color: colors.onWarning }]}>{mins} Min.</Text>
+                      <Text style={[styles.timerText, mins >= 15 && { color: colors.onWarning }]}>{mins < 60 ? `${mins} Min.` : mins < 1440 ? `${Math.floor(mins / 60)} Std.` : `${Math.floor(mins / 1440)} Tg.`}</Text>
                     </View>
                     <Text style={styles.waiter}>{item.waiter_name}</Text>
                   </View>

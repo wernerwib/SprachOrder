@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } 
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, euro, Report } from "@/src/api";
+import { api, euro, HOME, Report } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import HistoryCard from "@/src/components/HistoryCard";
 import Icon from "@/src/components/Icon";
@@ -28,7 +28,7 @@ export default function ReportScreen() {
   return (
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable testID="report-back-button" onPress={() => router.back()} style={styles.iconBtn} accessibilityLabel="Zurück">
+        <Pressable testID="report-back-button" onPress={() => (router.canGoBack() ? router.back() : router.replace(user ? HOME[user.role] : "/login"))} style={styles.iconBtn} accessibilityLabel="Zurück">
           <Icon name="arrow-left" size={24} color={colors.onSurface} />
         </Pressable>
         <View>
